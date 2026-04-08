@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+  PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+  "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="hr.kronos.backend.auth.persistence.AuthMapper">
+
+  <select id="findByEmail" resultType="hr.kronos.backend.auth.persistence.UserRow">
+    SELECT
+      id,
+      email,
+      full_name,
+      password_hash,
+      auth_provider,
+      created_at,
+      updated_at
+    FROM app_users
+    WHERE email = #{email}
+    LIMIT 1
+  </select>
+
+  <select id="findById" resultType="hr.kronos.backend.auth.persistence.UserRow">
+    SELECT
+      id,
+      email,
+      full_name,
+      password_hash,
+      auth_provider,
+      created_at,
+      updated_at
+    FROM app_users
+    WHERE id = #{id}
+    LIMIT 1
+  </select>
+
+  <insert id="insert" parameterType="hr.kronos.backend.auth.persistence.UserRow">
+    INSERT INTO app_users (
+      id,
+      email,
+      full_name,
+      password_hash,
+      auth_provider
+    ) VALUES (
+      #{id},
+      #{email},
+      #{fullName},
+      #{passwordHash},
+      #{authProvider}
+    )
+  </insert>
+
+  <update id="updateName">
+    UPDATE app_users
+    SET full_name = #{fullName},
+        updated_at = NOW()
+    WHERE id = #{id}
+  </update>
+
+</mapper>

@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+  PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+  "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="hr.kronos.backend.events.persistence.EventMapper">
+
+  <select id="findAll" resultType="hr.kronos.backend.events.persistence.EventRow">
+    SELECT
+      id,
+      title_hr,
+      title_en,
+      where_hr,
+      where_en,
+      about_hr,
+      about_en,
+      when_iso,
+      event_type,
+      latitude,
+      longitude,
+      entrance_latitude,
+      entrance_longitude,
+      entry_instructions_hr,
+      entry_instructions_en,
+      visibility,
+      participant_count
+    FROM events
+    WHERE visibility = 'public'
+    ORDER BY when_iso ASC
+  </select>
+
+  <select id="findFeed" resultType="hr.kronos.backend.events.persistence.EventRow">
+    SELECT
+      id,
+      title_hr,
+      title_en,
+      where_hr,
+      where_en,
+      about_hr,
+      about_en,
+      when_iso,
+      event_type,
+      latitude,
+      longitude,
+      entrance_latitude,
+      entrance_longitude,
+      entry_instructions_hr,
+      entry_instructions_en,
+      visibility,
+      participant_count
+    FROM events
+    WHERE visibility = 'public'
+    ORDER BY when_iso DESC
+  </select>
+
+  <select id="countPublicEvents" resultType="long">
+    SELECT COUNT(*)
+    FROM events
+    WHERE visibility = 'public'
+  </select>
+
+  <select id="countAllEvents" resultType="long">
+    SELECT COUNT(*)
+    FROM events
+  </select>
+
+  <insert id="insert" parameterType="hr.kronos.backend.events.persistence.EventRow">
+    INSERT INTO events (
+      id,
+      title_hr,
+      title_en,
+      where_hr,
+      where_en,
+      about_hr,
+      about_en,
+      when_iso,
+      event_type,
+      latitude,
+      longitude,
+      entrance_latitude,
+      entrance_longitude,
+      entry_instructions_hr,
+      entry_instructions_en,
+      visibility,
+      participant_count
+    ) VALUES (
+      #{id},
+      #{titleHr},
+      #{titleEn},
+      #{whereHr},
+      #{whereEn},
+      #{aboutHr},
+      #{aboutEn},
+      #{whenIso},
+      #{eventType},
+      #{latitude},
+      #{longitude},
+      #{entranceLatitude},
+      #{entranceLongitude},
+      #{entryInstructionsHr},
+      #{entryInstructionsEn},
+      #{visibility},
+      #{participantCount}
+    )
+  </insert>
+
+</mapper>

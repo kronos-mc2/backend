@@ -1,0 +1,77 @@
+# Backend setup
+
+## Prerequisites
+
+- Java 25
+- PostgreSQL (docker container `gik-pg` from your command)
+
+## Run
+
+Baza se pokrece sa:
+
+```bash
+docker run -d --name gik-pg \
+  -e POSTGRES_PASSWORD=gik \
+  -e POSTGRES_USER=gik \
+  -e POSTGRES_DB=gik \
+  -p 5432:5432 \
+  postgres
+```
+
+
+
+```bash
+export JAVA_HOME=$(/usr/libexec/java_home)
+./mvnw spring-boot:run
+```
+
+Za dev profil (na prvom loadu, samo ako je `events` tablica prazna, ubaci mock evente):
+
+```bash
+export JAVA_HOME=$(/usr/libexec/java_home)
+SPRING_PROFILES_ACTIVE=dev ./mvnw spring-boot:run
+```
+
+U `dev` profilu backend logira svaki HTTP poziv (method, path, status, duration).
+
+Default DB connection:
+
+- `jdbc:postgresql://localhost:5432/gik`
+- username: `gik`
+- password: `gik`
+
+You can override with env vars:
+
+- `DB_URL`
+- `DB_USERNAME`
+- `DB_PASSWORD`
+- `AUTH_JWT_SECRET`
+- `AUTH_JWT_EXPIRATION_SECONDS` (default je 315360000 sekundi = 10 godina, da na mobitelu ostane prijavljen dok korisnik ne klikne odjavu)
+- `AUTH_GOOGLE_CLIENT_IDS` (comma-separated Google client IDs)
+- `AUTH_APPLE_CLIENT_ID` (Apple token audience; for native iOS login this should be your iOS bundle identifier)
+
+## API routes
+
+- `GET /api/events`
+- `POST /api/events`
+- `GET /api/feed`
+- `GET /api/social/friends`
+- `GET /api/messages/conversations`
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `POST /api/auth/google`
+- `POST /api/auth/apple`
+- `GET /api/auth/me`
+
+Napomena: `/api/events` i `/api/feed` vracaju samo evente gdje je `visibility = public`.
+Svi `/api/**` endpointi (osim javnih auth endpointa) traze `Authorization: Bearer <token>`.
+
+## Flyway note
+
+If you already had an older `V1` applied in the same DB and get checksum mismatch, run:
+
+```bash
+./mvnw flyway:repair
+```
+
+or recreate a fresh database/container.
