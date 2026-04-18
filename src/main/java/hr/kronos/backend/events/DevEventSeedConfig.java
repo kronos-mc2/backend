@@ -2,6 +2,7 @@ package hr.kronos.backend.events;
 
 import hr.kronos.backend.events.persistence.EventMapper;
 import hr.kronos.backend.events.persistence.EventRow;
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
 import org.springframework.boot.ApplicationRunner;
@@ -62,7 +63,7 @@ public class DevEventSeedConfig {
                   "created",
                   45.8144,
                   15.9780,
-                  "private",
+                  "friends",
                   12));
 
       for (EventRow event : devEvents) {
@@ -91,13 +92,20 @@ public class DevEventSeedConfig {
     row.setTitleEn(titleEn);
     row.setWhereHr(whereHr);
     row.setWhereEn(whereEn);
+    row.setAddress(whereHr);
     row.setAboutHr(aboutHr);
     row.setAboutEn(aboutEn);
-    row.setWhenIso(OffsetDateTime.parse(whenIso));
+    OffsetDateTime startAt = OffsetDateTime.parse(whenIso);
+    row.setWhenIso(startAt);
+    row.setStartAt(startAt);
     row.setEventType(eventType);
     row.setLatitude(latitude);
     row.setLongitude(longitude);
     row.setVisibility(visibility);
+    row.setAttendanceMode("open");
+    row.setStatus("published");
+    row.setOrganizerRatingAverage(BigDecimal.ZERO);
+    row.setOrganizerRatingCount(0);
     row.setParticipantCount(participants);
     return row;
   }

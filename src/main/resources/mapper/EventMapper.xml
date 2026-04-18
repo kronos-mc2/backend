@@ -7,13 +7,17 @@
   <select id="findAll" resultType="hr.kronos.backend.events.persistence.EventRow">
     SELECT
       id,
+      creator_user_id,
       title_hr,
       title_en,
       where_hr,
       where_en,
+      address,
       about_hr,
       about_en,
       when_iso,
+      start_at,
+      end_at,
       event_type,
       latitude,
       longitude,
@@ -22,22 +26,34 @@
       entry_instructions_hr,
       entry_instructions_en,
       visibility,
+      attendance_mode,
+      price_amount,
+      price_currency,
+      capacity,
+      status,
+      organizer_rating_average,
+      organizer_rating_count,
       participant_count
     FROM events
     WHERE visibility = 'public'
-    ORDER BY when_iso ASC
+      AND status = 'published'
+    ORDER BY start_at ASC
   </select>
 
   <select id="findFeed" resultType="hr.kronos.backend.events.persistence.EventRow">
     SELECT
       id,
+      creator_user_id,
       title_hr,
       title_en,
       where_hr,
       where_en,
+      address,
       about_hr,
       about_en,
       when_iso,
+      start_at,
+      end_at,
       event_type,
       latitude,
       longitude,
@@ -46,10 +62,18 @@
       entry_instructions_hr,
       entry_instructions_en,
       visibility,
+      attendance_mode,
+      price_amount,
+      price_currency,
+      capacity,
+      status,
+      organizer_rating_average,
+      organizer_rating_count,
       participant_count
     FROM events
     WHERE visibility = 'public'
-    ORDER BY when_iso DESC
+      AND status = 'published'
+    ORDER BY start_at DESC
   </select>
 
   <select id="countPublicEvents" resultType="long">
@@ -66,13 +90,17 @@
   <insert id="insert" parameterType="hr.kronos.backend.events.persistence.EventRow">
     INSERT INTO events (
       id,
+      creator_user_id,
       title_hr,
       title_en,
       where_hr,
       where_en,
+      address,
       about_hr,
       about_en,
       when_iso,
+      start_at,
+      end_at,
       event_type,
       latitude,
       longitude,
@@ -81,16 +109,27 @@
       entry_instructions_hr,
       entry_instructions_en,
       visibility,
+      attendance_mode,
+      price_amount,
+      price_currency,
+      capacity,
+      status,
+      organizer_rating_average,
+      organizer_rating_count,
       participant_count
     ) VALUES (
       #{id},
+      #{creatorUserId},
       #{titleHr},
       #{titleEn},
       #{whereHr},
       #{whereEn},
+      #{address},
       #{aboutHr},
       #{aboutEn},
       #{whenIso},
+      #{startAt},
+      #{endAt},
       #{eventType},
       #{latitude},
       #{longitude},
@@ -99,8 +138,39 @@
       #{entryInstructionsHr},
       #{entryInstructionsEn},
       #{visibility},
+      #{attendanceMode},
+      #{priceAmount},
+      #{priceCurrency},
+      #{capacity},
+      #{status},
+      #{organizerRatingAverage},
+      #{organizerRatingCount},
       #{participantCount}
     )
+  </insert>
+
+  <insert id="upsertParticipant">
+    INSERT INTO event_participants (
+      event_id,
+      user_id,
+      status,
+      joined_at,
+      approved_at
+    ) VALUES (
+      #{eventId},
+      #{userId},
+      #{status},
+      NOW(),
+      CASE WHEN #{status} = 'joined' THEN NOW() ELSE NULL END
+    )
+    ON CONFLICT (event_id, user_id)
+    DO UPDATE SET
+      status = EXCLUDED.status,
+      joined_at = CASE
+        WHEN event_participants.status = 'left' THEN NOW()
+        ELSE event_participants.joined_at
+      END,
+      approved_at = EXCLUDED.approved_at
   </insert>
 
 </mapper>

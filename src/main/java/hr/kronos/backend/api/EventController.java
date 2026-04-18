@@ -2,9 +2,11 @@ package hr.kronos.backend.api;
 
 import hr.kronos.backend.api.dto.AppEventDto;
 import hr.kronos.backend.api.dto.CreateEventRequest;
+import hr.kronos.backend.auth.AuthPrincipal;
 import hr.kronos.backend.events.EventService;
 import java.util.List;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -33,7 +35,8 @@ public class EventController {
 
   @PostMapping("/events")
   @ResponseStatus(HttpStatus.CREATED)
-  public AppEventDto createEvent(@RequestBody CreateEventRequest request) {
-    return eventService.createEvent(request);
+  public AppEventDto createEvent(@RequestBody CreateEventRequest request, Authentication authentication) {
+    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
+    return eventService.createEvent(request, principal.userId());
   }
 }

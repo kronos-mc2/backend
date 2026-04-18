@@ -1,16 +1,21 @@
 package hr.kronos.backend.events.persistence;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
 public class EventRow {
   private String id;
+  private String creatorUserId;
   private String titleHr;
   private String titleEn;
   private String whereHr;
   private String whereEn;
+  private String address;
   private String aboutHr;
   private String aboutEn;
   private OffsetDateTime whenIso;
+  private OffsetDateTime startAt;
+  private OffsetDateTime endAt;
   private String eventType;
   private double latitude;
   private double longitude;
@@ -19,6 +24,13 @@ public class EventRow {
   private String entryInstructionsHr;
   private String entryInstructionsEn;
   private String visibility;
+  private String attendanceMode;
+  private BigDecimal priceAmount;
+  private String priceCurrency;
+  private Integer capacity;
+  private String status;
+  private BigDecimal organizerRatingAverage;
+  private int organizerRatingCount;
   private int participantCount;
 
   public String getId() {
@@ -27,6 +39,14 @@ public class EventRow {
 
   public void setId(String id) {
     this.id = id;
+  }
+
+  public String getCreatorUserId() {
+    return creatorUserId;
+  }
+
+  public void setCreatorUserId(String creatorUserId) {
+    this.creatorUserId = creatorUserId;
   }
 
   public String getTitleHr() {
@@ -61,6 +81,14 @@ public class EventRow {
     this.whereEn = whereEn;
   }
 
+  public String getAddress() {
+    return address;
+  }
+
+  public void setAddress(String address) {
+    this.address = address;
+  }
+
   public String getAboutHr() {
     return aboutHr;
   }
@@ -83,6 +111,22 @@ public class EventRow {
 
   public void setWhenIso(OffsetDateTime whenIso) {
     this.whenIso = whenIso;
+  }
+
+  public OffsetDateTime getStartAt() {
+    return startAt;
+  }
+
+  public void setStartAt(OffsetDateTime startAt) {
+    this.startAt = startAt;
+  }
+
+  public OffsetDateTime getEndAt() {
+    return endAt;
+  }
+
+  public void setEndAt(OffsetDateTime endAt) {
+    this.endAt = endAt;
   }
 
   public String getEventType() {
@@ -147,6 +191,62 @@ public class EventRow {
 
   public void setVisibility(String visibility) {
     this.visibility = visibility;
+  }
+
+  public String getAttendanceMode() {
+    return attendanceMode;
+  }
+
+  public void setAttendanceMode(String attendanceMode) {
+    this.attendanceMode = attendanceMode;
+  }
+
+  public BigDecimal getPriceAmount() {
+    return priceAmount;
+  }
+
+  public void setPriceAmount(BigDecimal priceAmount) {
+    this.priceAmount = priceAmount;
+  }
+
+  public String getPriceCurrency() {
+    return priceCurrency;
+  }
+
+  public void setPriceCurrency(String priceCurrency) {
+    this.priceCurrency = priceCurrency;
+  }
+
+  public Integer getCapacity() {
+    return capacity;
+  }
+
+  public void setCapacity(Integer capacity) {
+    this.capacity = capacity;
+  }
+
+  public String getStatus() {
+    return status;
+  }
+
+  public void setStatus(String status) {
+    this.status = status;
+  }
+
+  public BigDecimal getOrganizerRatingAverage() {
+    return organizerRatingAverage;
+  }
+
+  public void setOrganizerRatingAverage(BigDecimal organizerRatingAverage) {
+    this.organizerRatingAverage = organizerRatingAverage;
+  }
+
+  public int getOrganizerRatingCount() {
+    return organizerRatingCount;
+  }
+
+  public void setOrganizerRatingCount(int organizerRatingCount) {
+    this.organizerRatingCount = organizerRatingCount;
   }
 
   public int getParticipantCount() {

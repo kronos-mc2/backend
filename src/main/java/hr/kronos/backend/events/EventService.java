@@ -6,6 +6,7 @@ import hr.kronos.backend.api.dto.CreateEventRequest;
 import hr.kronos.backend.api.dto.LocalizedTextDto;
 import hr.kronos.backend.events.persistence.EventMapper;
 import hr.kronos.backend.events.persistence.EventRow;
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.List;
@@ -17,6 +18,9 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class EventService {
   private static final String CREATED_EVENT_TYPE = "created";
+  private static final String DEFAULT_STATUS = "published";
+  private static final String DEFAULT_ATTENDANCE_MODE = "open";
+  private static final String DEFAULT_VISIBILITY = "public";
 
   private final EventMapper eventMapper;
 
@@ -32,26 +36,44 @@ public class EventService {
     return eventMapper.findFeed().stream().map(this::toDto).toList();
   }
 
-  public AppEventDto createEvent(CreateEventRequest request) {
+  public AppEventDto createEvent(CreateEventRequest request, String creatorUserId) {
     validateRequest(request);
 
-    OffsetDateTime whenIso = parseWhenIso(request.whenISO());
+    OffsetDateTime startAt = parseWhenIso(firstNonBlank(request.startAt(), request.whenISO()), "startAt");
+    OffsetDateTime endAt = parseOptionalWhenIso(request.endAt(), "endAt");
+    if (endAt != null && endAt.isBefore(startAt)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "endAt must be after startAt.");
+    }
+
     String visibility = normalizeVisibility(request.visibility());
+    String attendanceMode = normalizeAttendanceMode(request.attendanceMode());
+    validateCommercialFields(attendanceMode, request.priceAmount(), request.priceCurrency(), request.capacity());
 
     EventRow row = new EventRow();
     row.setId("created-" + UUID.randomUUID().toString().replace("-", "").substring(0, 16));
+    row.setCreatorUserId(creatorUserId);
     row.setTitleHr(request.titleHr().trim());
     row.setTitleEn(request.titleEn().trim());
     row.setWhereHr(request.whereHr().trim());
     row.setWhereEn(request.whereEn().trim());
+    row.setAddress(firstNonBlank(request.address(), request.whereHr()).trim());
     row.setAboutHr(request.aboutHr().trim());
     row.setAboutEn(request.aboutEn().trim());
-    row.setWhenIso(whenIso);
+    row.setWhenIso(startAt);
+    row.setStartAt(startAt);
+    row.setEndAt(endAt);
     row.setEventType(CREATED_EVENT_TYPE);
     row.setLatitude(request.coordinates().latitude());
     row.setLongitude(request.coordinates().longitude());
     row.setParticipantCount(1);
     row.setVisibility(visibility);
+    row.setAttendanceMode(attendanceMode);
+    row.setPriceAmount("paid".equals(attendanceMode) ? request.priceAmount() : null);
+    row.setPriceCurrency("paid".equals(attendanceMode) ? request.priceCurrency().trim().toUpperCase() : null);
+    row.setCapacity(request.capacity());
+    row.setStatus(DEFAULT_STATUS);
+    row.setOrganizerRatingAverage(BigDecimal.ZERO);
+    row.setOrganizerRatingCount(0);
 
     if (request.entranceCoordinates() != null) {
       row.setEntranceLatitude(request.entranceCoordinates().latitude());
@@ -62,10 +84,13 @@ public class EventService {
     row.setEntryInstructionsEn(trimToNull(request.entryInstructionsEn()));
 
     eventMapper.insert(row);
+    eventMapper.upsertParticipant(row.getId(), creatorUserId, "joined");
     return toDto(row);
   }
 
   private AppEventDto toDto(EventRow row) {
+    OffsetDateTime startAt = row.getStartAt() == null ? row.getWhenIso() : row.getStartAt();
+
     CoordinatesDto entranceCoordinates = null;
     if (row.getEntranceLatitude() != null && row.getEntranceLongitude() != null) {
       entranceCoordinates = new CoordinatesDto(row.getEntranceLatitude(), row.getEntranceLongitude());
@@ -78,15 +103,26 @@ public class EventService {
 
     return new AppEventDto(
         row.getId(),
+        row.getCreatorUserId(),
         new LocalizedTextDto(row.getTitleHr(), row.getTitleEn()),
         new LocalizedTextDto(row.getWhereHr(), row.getWhereEn()),
+        row.getAddress(),
         new LocalizedTextDto(row.getAboutHr(), row.getAboutEn()),
-        row.getWhenIso().toInstant().toString(),
+        timestamp(startAt),
+        timestamp(startAt),
+        timestamp(row.getEndAt()),
         row.getEventType(),
         new CoordinatesDto(row.getLatitude(), row.getLongitude()),
         entranceCoordinates,
         entryInstructions,
         row.getVisibility(),
+        row.getAttendanceMode(),
+        row.getPriceAmount(),
+        row.getPriceCurrency(),
+        row.getCapacity(),
+        row.getStatus(),
+        row.getOrganizerRatingAverage() == null ? BigDecimal.ZERO : row.getOrganizerRatingAverage(),
+        row.getOrganizerRatingCount(),
         row.getParticipantCount());
   }
 
@@ -101,10 +137,15 @@ public class EventService {
     requireNonBlank(request.whereEn(), "whereEn");
     requireNonBlank(request.aboutHr(), "aboutHr");
     requireNonBlank(request.aboutEn(), "aboutEn");
-    requireNonBlank(request.whenISO(), "whenISO");
+    requireNonBlank(firstNonBlank(request.startAt(), request.whenISO()), "startAt");
 
     if (request.coordinates() == null) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "coordinates are required.");
+    }
+
+    validateCoordinates(request.coordinates(), "coordinates");
+    if (request.entranceCoordinates() != null) {
+      validateCoordinates(request.entranceCoordinates(), "entranceCoordinates");
     }
   }
 
@@ -114,16 +155,74 @@ public class EventService {
     }
   }
 
-  private OffsetDateTime parseWhenIso(String whenIso) {
-    try {
-      return OffsetDateTime.parse(whenIso);
-    } catch (DateTimeParseException exception) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid whenISO format.");
+  private void validateCoordinates(CoordinatesDto coordinates, String fieldName) {
+    if (!isValidCoordinate(coordinates.latitude(), coordinates.longitude())) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, fieldName + " are invalid.");
     }
   }
 
+  private boolean isValidCoordinate(double latitude, double longitude) {
+    return Double.isFinite(latitude)
+        && Double.isFinite(longitude)
+        && Math.abs(latitude) <= 90
+        && Math.abs(longitude) <= 180;
+  }
+
+  private OffsetDateTime parseWhenIso(String whenIso, String fieldName) {
+    try {
+      return OffsetDateTime.parse(whenIso);
+    } catch (DateTimeParseException exception) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid " + fieldName + " format.");
+    }
+  }
+
+  private OffsetDateTime parseOptionalWhenIso(String whenIso, String fieldName) {
+    String normalized = trimToNull(whenIso);
+    return normalized == null ? null : parseWhenIso(normalized, fieldName);
+  }
+
   private String normalizeVisibility(String visibility) {
-    return "private".equalsIgnoreCase(visibility) ? "private" : "public";
+    if ("friends".equalsIgnoreCase(visibility) || "private".equalsIgnoreCase(visibility)) {
+      return "friends";
+    }
+
+    return DEFAULT_VISIBILITY;
+  }
+
+  private String normalizeAttendanceMode(String attendanceMode) {
+    if ("waitlist".equalsIgnoreCase(attendanceMode)) {
+      return "waitlist";
+    }
+
+    if ("paid".equalsIgnoreCase(attendanceMode)) {
+      return "paid";
+    }
+
+    return DEFAULT_ATTENDANCE_MODE;
+  }
+
+  private void validateCommercialFields(String attendanceMode, BigDecimal priceAmount, String priceCurrency, Integer capacity) {
+    if (capacity != null && capacity <= 0) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "capacity must be greater than 0.");
+    }
+
+    if (!"paid".equals(attendanceMode)) {
+      return;
+    }
+
+    if (priceAmount == null || priceAmount.compareTo(BigDecimal.ZERO) < 0) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "priceAmount is required for paid events.");
+    }
+
+    String normalizedCurrency = trimToNull(priceCurrency);
+    if (normalizedCurrency == null || normalizedCurrency.length() != 3) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "priceCurrency must be a 3-letter code.");
+    }
+  }
+
+  private String firstNonBlank(String primary, String fallback) {
+    String normalizedPrimary = trimToNull(primary);
+    return normalizedPrimary != null ? normalizedPrimary : fallback;
   }
 
   private String trimToNull(String value) {
@@ -133,5 +232,9 @@ public class EventService {
 
     String trimmed = value.trim();
     return trimmed.isEmpty() ? null : trimmed;
+  }
+
+  private String timestamp(OffsetDateTime value) {
+    return value == null ? null : value.toInstant().toString();
   }
 }
