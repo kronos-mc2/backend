@@ -27,4 +27,7 @@ public record AppEventDto(
     String status,
     BigDecimal organizerRatingAverage,
     int organizerRatingCount,
-    int participantCount) {}
+    int participantCount,
+    Boolean joinedByMe,
+    String attendanceStatus,
+    boolean canJoin) {}

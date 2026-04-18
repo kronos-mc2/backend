@@ -28,12 +28,74 @@ public class EventService {
     this.eventMapper = eventMapper;
   }
 
-  public List<AppEventDto> getEvents() {
-    return eventMapper.findAll().stream().map(this::toDto).toList();
+  public List<AppEventDto> getEvents(
+      String from,
+      String to,
+      Double lat,
+      Double lng,
+      Double radiusKm,
+      String query,
+      String userId) {
+    OffsetDateTime fromDate = parseOptionalWhenIso(from, "from");
+    OffsetDateTime toDate = parseOptionalWhenIso(to, "to");
+
+    if (fromDate != null && toDate != null && toDate.isBefore(fromDate)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "to must be after from.");
+    }
+
+    if ((lat == null) != (lng == null)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "lat and lng must be provided together.");
+    }
+
+    if (lat != null && lng != null && !isValidCoordinate(lat, lng)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "lat/lng are invalid.");
+    }
+
+    if (radiusKm != null && (radiusKm <= 0 || radiusKm > 500)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "radiusKm must be between 0 and 500.");
+    }
+
+    String normalizedQuery = trimToNull(query);
+    return eventMapper.findAll(fromDate, toDate, lat, lng, radiusKm, normalizedQuery, userId).stream().map(this::toDto).toList();
   }
 
   public List<AppEventDto> getFeed() {
     return eventMapper.findFeed().stream().map(this::toDto).toList();
+  }
+
+  public AppEventDto joinEvent(String eventId, String userId) {
+    EventRow row = requireJoinableEvent(eventId, userId);
+    String currentStatus = row.getUserParticipantStatus();
+    boolean shouldIncrement =
+        currentStatus == null || "left".equals(currentStatus) || "rejected".equals(currentStatus);
+    String nextStatus = "waitlist".equals(row.getAttendanceMode()) ? "waitlisted" : "joined";
+
+    eventMapper.upsertParticipant(eventId, userId, nextStatus);
+    if (shouldIncrement) {
+      eventMapper.incrementParticipantCount(eventId);
+    }
+
+    EventRow updated = eventMapper.findById(eventId, userId);
+    return toDto(updated);
+  }
+
+  public AppEventDto leaveEvent(String eventId, String userId) {
+    EventRow row = eventMapper.findById(eventId, userId);
+    if (row == null) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found.");
+    }
+
+    String currentStatus = row.getUserParticipantStatus();
+    boolean shouldDecrement =
+        "joined".equals(currentStatus) || "approved".equals(currentStatus) || "waitlisted".equals(currentStatus);
+
+    eventMapper.upsertParticipant(eventId, userId, "left");
+    if (shouldDecrement) {
+      eventMapper.decrementParticipantCount(eventId);
+    }
+
+    EventRow updated = eventMapper.findById(eventId, userId);
+    return toDto(updated);
   }
 
   public AppEventDto createEvent(CreateEventRequest request, String creatorUserId) {
@@ -85,6 +147,7 @@ public class EventService {
 
     eventMapper.insert(row);
     eventMapper.upsertParticipant(row.getId(), creatorUserId, "joined");
+    row.setUserParticipantStatus("joined");
     return toDto(row);
   }
 
@@ -123,7 +186,44 @@ public class EventService {
         row.getStatus(),
         row.getOrganizerRatingAverage() == null ? BigDecimal.ZERO : row.getOrganizerRatingAverage(),
         row.getOrganizerRatingCount(),
-        row.getParticipantCount());
+        row.getParticipantCount(),
+        isJoinedByMe(row.getUserParticipantStatus()),
+        row.getUserParticipantStatus(),
+        canJoin(row));
+  }
+
+  private EventRow requireJoinableEvent(String eventId, String userId) {
+    EventRow row = eventMapper.findById(eventId, userId);
+    if (row == null) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found.");
+    }
+
+    if (!canJoin(row)) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Event cannot be joined.");
+    }
+
+    return row;
+  }
+
+  private boolean canJoin(EventRow row) {
+    if (!DEFAULT_STATUS.equals(row.getStatus())) {
+      return false;
+    }
+
+    Integer capacity = row.getCapacity();
+    if (isJoinedByMe(row.getUserParticipantStatus())) {
+      return true;
+    }
+
+    if ("waitlist".equals(row.getAttendanceMode())) {
+      return true;
+    }
+
+    return capacity == null || row.getParticipantCount() < capacity;
+  }
+
+  private boolean isJoinedByMe(String status) {
+    return "joined".equals(status) || "approved".equals(status) || "waitlisted".equals(status);
   }
 
   private void validateRequest(CreateEventRequest request) {

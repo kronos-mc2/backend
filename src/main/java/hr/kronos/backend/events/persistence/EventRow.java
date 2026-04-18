@@ -32,6 +32,7 @@ public class EventRow {
   private BigDecimal organizerRatingAverage;
   private int organizerRatingCount;
   private int participantCount;
+  private String userParticipantStatus;
 
   public String getId() {
     return id;
@@ -255,5 +256,13 @@ public class EventRow {
 
   public void setParticipantCount(int participantCount) {
     this.participantCount = participantCount;
+  }
+
+  public String getUserParticipantStatus() {
+    return userParticipantStatus;
+  }
+
+  public void setUserParticipantStatus(String userParticipantStatus) {
+    this.userParticipantStatus = userParticipantStatus;
   }
 }

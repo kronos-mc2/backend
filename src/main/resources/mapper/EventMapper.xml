@@ -4,87 +4,112 @@
   "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="hr.kronos.backend.events.persistence.EventMapper">
 
+  <sql id="eventColumns">
+    e.id,
+    e.creator_user_id,
+    e.title_hr,
+    e.title_en,
+    e.where_hr,
+    e.where_en,
+    e.address,
+    e.about_hr,
+    e.about_en,
+    e.when_iso,
+    e.start_at,
+    e.end_at,
+    e.event_type,
+    e.latitude,
+    e.longitude,
+    e.entrance_latitude,
+    e.entrance_longitude,
+    e.entry_instructions_hr,
+    e.entry_instructions_en,
+    e.visibility,
+    e.attendance_mode,
+    e.price_amount,
+    e.price_currency,
+    e.capacity,
+    e.status,
+    e.organizer_rating_average,
+    e.organizer_rating_count,
+    e.participant_count
+  </sql>
+
+  <sql id="distanceExpression">
+    (6371 * acos(least(1, greatest(-1,
+      cos(radians(#{lat})) * cos(radians(e.latitude)) * cos(radians(e.longitude) - radians(#{lng}))
+      + sin(radians(#{lat})) * sin(radians(e.latitude))
+    ))))
+  </sql>
+
   <select id="findAll" resultType="hr.kronos.backend.events.persistence.EventRow">
     SELECT
-      id,
-      creator_user_id,
-      title_hr,
-      title_en,
-      where_hr,
-      where_en,
-      address,
-      about_hr,
-      about_en,
-      when_iso,
-      start_at,
-      end_at,
-      event_type,
-      latitude,
-      longitude,
-      entrance_latitude,
-      entrance_longitude,
-      entry_instructions_hr,
-      entry_instructions_en,
-      visibility,
-      attendance_mode,
-      price_amount,
-      price_currency,
-      capacity,
-      status,
-      organizer_rating_average,
-      organizer_rating_count,
-      participant_count
-    FROM events
-    WHERE visibility = 'public'
-      AND status = 'published'
-    ORDER BY start_at ASC
+      <include refid="eventColumns" />,
+      ep.status AS user_participant_status
+    FROM events e
+    LEFT JOIN event_participants ep
+      ON ep.event_id = e.id
+      AND ep.user_id = #{userId}
+    WHERE e.visibility = 'public'
+      AND e.status = 'published'
+      <if test="from != null">
+        AND e.start_at &gt;= #{from}
+      </if>
+      <if test="to != null">
+        AND e.start_at &lt; #{to}
+      </if>
+      <if test="query != null and query != ''">
+        AND (
+          e.title_hr ILIKE '%' || #{query} || '%'
+          OR e.title_en ILIKE '%' || #{query} || '%'
+          OR e.where_hr ILIKE '%' || #{query} || '%'
+          OR e.where_en ILIKE '%' || #{query} || '%'
+          OR e.address ILIKE '%' || #{query} || '%'
+          OR e.about_hr ILIKE '%' || #{query} || '%'
+          OR e.about_en ILIKE '%' || #{query} || '%'
+        )
+      </if>
+      <if test="lat != null and lng != null and radiusKm != null">
+        AND <include refid="distanceExpression" /> &lt;= #{radiusKm}
+      </if>
+    ORDER BY
+      <if test="lat != null and lng != null">
+        <include refid="distanceExpression" /> ASC,
+      </if>
+      e.start_at ASC
   </select>
 
   <select id="findFeed" resultType="hr.kronos.backend.events.persistence.EventRow">
     SELECT
-      id,
-      creator_user_id,
-      title_hr,
-      title_en,
-      where_hr,
-      where_en,
-      address,
-      about_hr,
-      about_en,
-      when_iso,
-      start_at,
-      end_at,
-      event_type,
-      latitude,
-      longitude,
-      entrance_latitude,
-      entrance_longitude,
-      entry_instructions_hr,
-      entry_instructions_en,
-      visibility,
-      attendance_mode,
-      price_amount,
-      price_currency,
-      capacity,
-      status,
-      organizer_rating_average,
-      organizer_rating_count,
-      participant_count
-    FROM events
-    WHERE visibility = 'public'
-      AND status = 'published'
-    ORDER BY start_at DESC
+      <include refid="eventColumns" />,
+      NULL AS user_participant_status
+    FROM events e
+    WHERE e.visibility = 'public'
+      AND e.status = 'published'
+    ORDER BY e.start_at DESC
+  </select>
+
+  <select id="findById" resultType="hr.kronos.backend.events.persistence.EventRow">
+    SELECT
+      <include refid="eventColumns" />,
+      ep.status AS user_participant_status
+    FROM events e
+    LEFT JOIN event_participants ep
+      ON ep.event_id = e.id
+      AND ep.user_id = #{userId}
+    WHERE e.id = #{id}
+    LIMIT 1
   </select>
 
   <select id="countPublicEvents" resultType="long">
     SELECT COUNT(*)
-    FROM events
-    WHERE visibility = 'public'
+    FROM events e
+    WHERE e.visibility = 'public'
   </select>
 
   <select id="countAllEvents" resultType="long">
     SELECT COUNT(*)
-    FROM events
+    FROM events e
   </select>
 
   <insert id="insert" parameterType="hr.kronos.backend.events.persistence.EventRow">
@@ -172,5 +197,19 @@
       END,
       approved_at = EXCLUDED.approved_at
   </insert>
+
+  <update id="incrementParticipantCount">
+    UPDATE events
+    SET participant_count = participant_count + 1,
+        updated_at = NOW()
+    WHERE id = #{eventId}
+  </update>
+
+  <update id="decrementParticipantCount">
+    UPDATE events
+    SET participant_count = GREATEST(participant_count - 1, 0),
+        updated_at = NOW()
+    WHERE id = #{eventId}
+  </update>
 
 </mapper>
