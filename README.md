@@ -34,6 +34,46 @@ SPRING_PROFILES_ACTIVE=dev ./mvnw spring-boot:run
 
 U `dev` profilu backend logira svaki HTTP poziv (method, path, status, duration).
 
+## Test deploy na Raspberry Pi
+
+Test profil je namijenjen za javni test backend iza Caddyja na domeni:
+
+- `https://test.api.gik.nerizz.com`
+
+Priprema env filea:
+
+```bash
+cd backend/deploy/test
+cp backend.env.example backend.env
+```
+
+U `backend.env` obavezno promijeni:
+
+- `POSTGRES_PASSWORD`
+- `DB_PASSWORD` na istu vrijednost kao `POSTGRES_PASSWORD`
+- `AUTH_JWT_SECRET` na dugi random secret
+
+Pokretanje kroz Podman Compose:
+
+```bash
+cd backend
+podman compose -f deploy/test/compose.podman.yml up -d --build
+```
+
+Caddy reverse-proxyja `test.api.gik.nerizz.com` na backend container i sam izdaje TLS certifikat. U Cloudflareu DNS record za `test.api.gik.nerizz.com` treba pokazivati na javni IP Raspberry Pi-ja, a portovi `80` i `443` moraju biti dostupni prema Pi-ju.
+
+Provjera:
+
+```bash
+curl https://test.api.gik.nerizz.com/health
+```
+
+Ocekivani odgovor:
+
+```json
+{"status":"ok"}
+```
+
 Default DB connection:
 
 - `jdbc:postgresql://localhost:5432/gik`

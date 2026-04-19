@@ -1,0 +1,53 @@
+name: gik-test
+
+services:
+  postgres:
+    image: docker.io/library/postgres:17-alpine
+    restart: unless-stopped
+    env_file:
+      - ./backend.env
+    volumes:
+      - postgres-data:/var/lib/postgresql/data:Z
+    networks:
+      - gik-test
+
+  backend:
+    build:
+      context: ../..
+      dockerfile: Containerfile
+    image: localhost/gik-backend:test
+    restart: unless-stopped
+    env_file:
+      - ./backend.env
+    environment:
+      SPRING_PROFILES_ACTIVE: test
+      SERVER_PORT: 8080
+    depends_on:
+      - postgres
+    expose:
+      - "8080"
+    networks:
+      - gik-test
+
+  caddy:
+    image: docker.io/library/caddy:2
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:Z
+      - caddy-data:/data:Z
+      - caddy-config:/config:Z
+    networks:
+      - gik-test
+
+volumes:
+  postgres-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  gik-test:
