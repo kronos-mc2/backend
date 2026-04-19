@@ -38,7 +38,7 @@ U `dev` profilu backend logira svaki HTTP poziv (method, path, status, duration)
 
 Test profil je namijenjen za javni test backend iza Caddyja na domeni:
 
-- `https://test.api.gik.nerizz.com`
+- `https://test-api-gik.nerizz.com`
 
 Priprema env filea:
 
@@ -60,12 +60,12 @@ cd backend
 podman compose -f deploy/test/compose.podman.yml up -d --build
 ```
 
-Caddy reverse-proxyja `test.api.gik.nerizz.com` na backend container i sam izdaje TLS certifikat. U Cloudflareu DNS record za `test.api.gik.nerizz.com` treba pokazivati na javni IP Raspberry Pi-ja, a portovi `80` i `443` moraju biti dostupni prema Pi-ju.
+Caddy reverse-proxyja `test-api-gik.nerizz.com` na backend container i sam izdaje TLS certifikat. U Cloudflareu DNS record za `test-api-gik.nerizz.com` treba pokazivati na javni IP Raspberry Pi-ja, a portovi `80` i `443` moraju biti dostupni prema Pi-ju.
 
 Provjera:
 
 ```bash
-curl https://test.api.gik.nerizz.com/health
+curl https://test-api-gik.nerizz.com/health
 ```
 
 Ocekivani odgovor:
