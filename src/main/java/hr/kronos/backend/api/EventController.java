@@ -39,9 +39,22 @@ public class EventController {
     return eventService.getEvents(from, to, lat, lng, radiusKm, query, principal.userId());
   }
 
+  @GetMapping("/events/{id}")
+  public AppEventDto getEventById(@PathVariable String id, Authentication authentication) {
+    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
+    return eventService.getEventById(id, principal.userId());
+  }
+
   @GetMapping("/feed")
-  public List<AppEventDto> getFeed() {
-    return eventService.getFeed();
+  public List<AppEventDto> getFeed(Authentication authentication) {
+    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
+    return eventService.getFeed(principal.userId());
+  }
+
+  @GetMapping("/users/me/events")
+  public List<AppEventDto> getMyEvents(@RequestParam(required = false) String filter, Authentication authentication) {
+    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
+    return eventService.getMyEvents(principal.userId(), filter);
   }
 
   @PostMapping("/events")

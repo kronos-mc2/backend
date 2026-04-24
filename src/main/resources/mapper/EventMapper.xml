@@ -42,6 +42,20 @@
     ))))
   </sql>
 
+  <sql id="accessibleEventPredicate">
+    (
+      (e.visibility = 'public' AND e.status = 'published')
+      OR e.creator_user_id = #{userId}
+      OR EXISTS (
+        SELECT 1
+        FROM event_participants ep_access
+        WHERE ep_access.event_id = e.id
+          AND ep_access.user_id = #{userId}
+          AND ep_access.status IN ('joined', 'approved', 'waitlisted')
+      )
+    )
+  </sql>
+
   <select id="findAll" resultType="hr.kronos.backend.events.persistence.EventRow">
     SELECT
       <include refid="eventColumns" />,
@@ -82,8 +96,11 @@
   <select id="findFeed" resultType="hr.kronos.backend.events.persistence.EventRow">
     SELECT
       <include refid="eventColumns" />,
-      NULL AS user_participant_status
+      ep.status AS user_participant_status
     FROM events e
+    LEFT JOIN event_participants ep
+      ON ep.event_id = e.id
+      AND ep.user_id = #{userId}
     WHERE e.visibility = 'public'
       AND e.status = 'published'
     ORDER BY e.start_at DESC
@@ -99,6 +116,55 @@
       AND ep.user_id = #{userId}
     WHERE e.id = #{id}
     LIMIT 1
+  </select>
+
+  <select id="findAccessibleById" resultType="hr.kronos.backend.events.persistence.EventRow">
+    SELECT
+      <include refid="eventColumns" />,
+      ep.status AS user_participant_status
+    FROM events e
+    LEFT JOIN event_participants ep
+      ON ep.event_id = e.id
+      AND ep.user_id = #{userId}
+    WHERE e.id = #{id}
+      AND <include refid="accessibleEventPredicate" />
+    LIMIT 1
+  </select>
+
+  <select id="findByUser" resultType="hr.kronos.backend.events.persistence.EventRow">
+    SELECT
+      <include refid="eventColumns" />,
+      ep.status AS user_participant_status
+    FROM events e
+    LEFT JOIN event_participants ep
+      ON ep.event_id = e.id
+      AND ep.user_id = #{userId}
+    WHERE
+      <choose>
+        <when test="filter == 'created'">
+          e.creator_user_id = #{userId}
+        </when>
+        <when test="filter == 'joined'">
+          ep.status IN ('joined', 'approved', 'waitlisted')
+        </when>
+        <otherwise>
+          e.creator_user_id = #{userId}
+          OR ep.status IN ('joined', 'approved', 'waitlisted')
+        </otherwise>
+      </choose>
+    ORDER BY e.start_at ASC
+  </select>
+
+  <select id="findMediaByEventId" resultType="hr.kronos.backend.events.persistence.EventMediaRow">
+    SELECT
+      id,
+      media_type,
+      url,
+      thumbnail_url,
+      sort_order
+    FROM event_media
+    WHERE event_id = #{eventId}
+    ORDER BY sort_order ASC, created_at ASC
   </select>
 
   <select id="countPublicEvents" resultType="long">

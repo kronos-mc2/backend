@@ -15,9 +15,15 @@ public interface EventMapper {
       @Param("query") String query,
       @Param("userId") String userId);
 
-  List<EventRow> findFeed();
+  List<EventRow> findFeed(@Param("userId") String userId);
 
   EventRow findById(@Param("id") String id, @Param("userId") String userId);
+
+  EventRow findAccessibleById(@Param("id") String id, @Param("userId") String userId);
+
+  List<EventRow> findByUser(@Param("userId") String userId, @Param("filter") String filter);
+
+  List<EventMediaRow> findMediaByEventId(@Param("eventId") String eventId);
 
   long countAllEvents();
 

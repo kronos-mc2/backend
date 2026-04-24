@@ -3,8 +3,10 @@ package hr.kronos.backend.events;
 import hr.kronos.backend.api.dto.AppEventDto;
 import hr.kronos.backend.api.dto.CoordinatesDto;
 import hr.kronos.backend.api.dto.CreateEventRequest;
+import hr.kronos.backend.api.dto.EventMediaDto;
 import hr.kronos.backend.api.dto.LocalizedTextDto;
 import hr.kronos.backend.events.persistence.EventMapper;
+import hr.kronos.backend.events.persistence.EventMediaRow;
 import hr.kronos.backend.events.persistence.EventRow;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -21,6 +23,9 @@ public class EventService {
   private static final String DEFAULT_STATUS = "published";
   private static final String DEFAULT_ATTENDANCE_MODE = "open";
   private static final String DEFAULT_VISIBILITY = "public";
+  private static final String MY_EVENTS_FILTER_ALL = "all";
+  private static final String MY_EVENTS_FILTER_JOINED = "joined";
+  private static final String MY_EVENTS_FILTER_CREATED = "created";
 
   private final EventMapper eventMapper;
 
@@ -59,8 +64,18 @@ public class EventService {
     return eventMapper.findAll(fromDate, toDate, lat, lng, radiusKm, normalizedQuery, userId).stream().map(this::toDto).toList();
   }
 
-  public List<AppEventDto> getFeed() {
-    return eventMapper.findFeed().stream().map(this::toDto).toList();
+  public List<AppEventDto> getFeed(String userId) {
+    return eventMapper.findFeed(userId).stream().map(this::toDto).toList();
+  }
+
+  public AppEventDto getEventById(String eventId, String userId) {
+    EventRow row = getAccessibleEvent(eventId, userId);
+    return toDto(row, eventMapper.findMediaByEventId(row.getId()).stream().map(this::toMediaDto).toList());
+  }
+
+  public List<AppEventDto> getMyEvents(String userId, String filter) {
+    String normalizedFilter = normalizeMyEventsFilter(filter);
+    return eventMapper.findByUser(userId, normalizedFilter).stream().map(this::toDto).toList();
   }
 
   public AppEventDto joinEvent(String eventId, String userId) {
@@ -80,11 +95,7 @@ public class EventService {
   }
 
   public AppEventDto leaveEvent(String eventId, String userId) {
-    EventRow row = eventMapper.findById(eventId, userId);
-    if (row == null) {
-      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found.");
-    }
-
+    EventRow row = getAccessibleEvent(eventId, userId);
     String currentStatus = row.getUserParticipantStatus();
     boolean shouldDecrement =
         "joined".equals(currentStatus) || "approved".equals(currentStatus) || "waitlisted".equals(currentStatus);
@@ -152,6 +163,10 @@ public class EventService {
   }
 
   private AppEventDto toDto(EventRow row) {
+    return toDto(row, null);
+  }
+
+  private AppEventDto toDto(EventRow row, List<EventMediaDto> media) {
     OffsetDateTime startAt = row.getStartAt() == null ? row.getWhenIso() : row.getStartAt();
 
     CoordinatesDto entranceCoordinates = null;
@@ -189,19 +204,28 @@ public class EventService {
         row.getParticipantCount(),
         isJoinedByMe(row.getUserParticipantStatus()),
         row.getUserParticipantStatus(),
-        canJoin(row));
+        canJoin(row),
+        media == null || media.isEmpty() ? null : media);
+  }
+
+  private EventMediaDto toMediaDto(EventMediaRow row) {
+    return new EventMediaDto(row.getId(), row.getMediaType(), row.getUrl(), row.getThumbnailUrl(), row.getSortOrder());
   }
 
   private EventRow requireJoinableEvent(String eventId, String userId) {
-    EventRow row = eventMapper.findById(eventId, userId);
-    if (row == null) {
-      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found.");
-    }
-
+    EventRow row = getAccessibleEvent(eventId, userId);
     if (!canJoin(row)) {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "Event cannot be joined.");
     }
 
+    return row;
+  }
+
+  private EventRow getAccessibleEvent(String eventId, String userId) {
+    EventRow row = eventMapper.findAccessibleById(eventId, userId);
+    if (row == null) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found.");
+    }
     return row;
   }
 
@@ -224,6 +248,23 @@ public class EventService {
 
   private boolean isJoinedByMe(String status) {
     return "joined".equals(status) || "approved".equals(status) || "waitlisted".equals(status);
+  }
+
+  private String normalizeMyEventsFilter(String filter) {
+    String normalized = trimToNull(filter);
+    if (normalized == null || MY_EVENTS_FILTER_ALL.equalsIgnoreCase(normalized)) {
+      return MY_EVENTS_FILTER_ALL;
+    }
+
+    if (MY_EVENTS_FILTER_JOINED.equalsIgnoreCase(normalized)) {
+      return MY_EVENTS_FILTER_JOINED;
+    }
+
+    if (MY_EVENTS_FILTER_CREATED.equalsIgnoreCase(normalized)) {
+      return MY_EVENTS_FILTER_CREATED;
+    }
+
+    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported my events filter.");
   }
 
   private void validateRequest(CreateEventRequest request) {

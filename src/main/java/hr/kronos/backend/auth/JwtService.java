@@ -14,14 +14,17 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class JwtService {
+  private static final long DEFAULT_EXPIRATION_SECONDS = 604800;
+  private static final long MAX_EXPIRATION_SECONDS = 2592000;
+
   private final SecretKey secretKey;
   private final long expirationSeconds;
 
   public JwtService(
       @Value("${auth.jwt.secret}") String jwtSecret,
-      @Value("${auth.jwt.expiration-seconds:315360000}") long expirationSeconds) {
+      @Value("${auth.jwt.expiration-seconds:604800}") long expirationSeconds) {
     this.secretKey = buildSecretKey(jwtSecret);
-    this.expirationSeconds = expirationSeconds;
+    this.expirationSeconds = normalizeExpirationSeconds(expirationSeconds);
   }
 
   public String createToken(UserRow user) {
@@ -59,5 +62,13 @@ public class JwtService {
     }
 
     return Keys.hmacShaKeyFor(bytes);
+  }
+
+  private long normalizeExpirationSeconds(long configuredExpirationSeconds) {
+    long normalized = configuredExpirationSeconds <= 0 ? DEFAULT_EXPIRATION_SECONDS : configuredExpirationSeconds;
+    if (normalized > MAX_EXPIRATION_SECONDS) {
+      throw new IllegalStateException("auth.jwt.expiration-seconds must be 30 days or less.");
+    }
+    return normalized;
   }
 }

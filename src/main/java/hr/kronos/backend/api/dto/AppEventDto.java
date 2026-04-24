@@ -3,6 +3,7 @@ package hr.kronos.backend.api.dto;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.math.BigDecimal;
+import java.util.List;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record AppEventDto(
@@ -30,4 +31,5 @@ public record AppEventDto(
     int participantCount,
     Boolean joinedByMe,
     String attendanceStatus,
-    boolean canJoin) {}
+    boolean canJoin,
+    List<EventMediaDto> media) {}
