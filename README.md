@@ -86,7 +86,7 @@ You can override with env vars:
 - `DB_USERNAME`
 - `DB_PASSWORD`
 - `AUTH_JWT_SECRET`
-- `AUTH_JWT_EXPIRATION_SECONDS` (default je 315360000 sekundi = 10 godina, da na mobitelu ostane prijavljen dok korisnik ne klikne odjavu)
+- `AUTH_JWT_EXPIRATION_SECONDS` (default je 2592000 sekundi = 30 dana; backend odbija vece vrijednosti)
 - `AUTH_GOOGLE_CLIENT_IDS` (comma-separated Google client IDs)
 - `AUTH_APPLE_CLIENT_ID` (Apple token audience; for native iOS login this should be your iOS bundle identifier)
 
