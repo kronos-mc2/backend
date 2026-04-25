@@ -4,14 +4,19 @@ import hr.kronos.backend.api.dto.AppEventDto;
 import hr.kronos.backend.api.dto.CoordinatesDto;
 import hr.kronos.backend.api.dto.CreateEventRequest;
 import hr.kronos.backend.api.dto.EventMediaDto;
+import hr.kronos.backend.api.dto.FeedPageDto;
 import hr.kronos.backend.api.dto.LocalizedTextDto;
 import hr.kronos.backend.events.persistence.EventMapper;
 import hr.kronos.backend.events.persistence.EventMediaRow;
 import hr.kronos.backend.events.persistence.EventRow;
+import java.nio.charset.StandardCharsets;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
+import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -26,6 +31,8 @@ public class EventService {
   private static final String MY_EVENTS_FILTER_ALL = "all";
   private static final String MY_EVENTS_FILTER_JOINED = "joined";
   private static final String MY_EVENTS_FILTER_CREATED = "created";
+  private static final int DEFAULT_FEED_LIMIT = 5;
+  private static final int MAX_FEED_LIMIT = 10;
 
   private final EventMapper eventMapper;
 
@@ -64,8 +71,20 @@ public class EventService {
     return eventMapper.findAll(fromDate, toDate, lat, lng, radiusKm, normalizedQuery, userId).stream().map(this::toDto).toList();
   }
 
-  public List<AppEventDto> getFeed(String userId) {
-    return eventMapper.findFeed(userId).stream().map(this::toDto).toList();
+  public FeedPageDto getFeed(String userId, String cursor, Integer limit) {
+    FeedCursor parsedCursor = parseFeedCursor(cursor);
+    int normalizedLimit = normalizeFeedLimit(limit);
+    List<EventRow> rows =
+        eventMapper.findFeedPage(
+            userId,
+            parsedCursor == null ? null : parsedCursor.startAt(),
+            parsedCursor == null ? null : parsedCursor.eventId(),
+            normalizedLimit + 1);
+
+    boolean hasMore = rows.size() > normalizedLimit;
+    List<EventRow> pageRows = hasMore ? rows.subList(0, normalizedLimit) : rows;
+    String nextCursor = hasMore ? encodeFeedCursor(pageRows.get(pageRows.size() - 1)) : null;
+    return new FeedPageDto(toDtosWithMedia(pageRows), nextCursor, hasMore);
   }
 
   public AppEventDto getEventById(String eventId, String userId) {
@@ -76,6 +95,10 @@ public class EventService {
   public List<AppEventDto> getMyEvents(String userId, String filter) {
     String normalizedFilter = normalizeMyEventsFilter(filter);
     return eventMapper.findByUser(userId, normalizedFilter).stream().map(this::toDto).toList();
+  }
+
+  public List<AppEventDto> getLikedEvents(String userId) {
+    return toDtosWithMedia(eventMapper.findLikedByUser(userId));
   }
 
   public AppEventDto joinEvent(String eventId, String userId) {
@@ -107,6 +130,18 @@ public class EventService {
 
     EventRow updated = eventMapper.findById(eventId, userId);
     return toDto(updated);
+  }
+
+  public AppEventDto likeEvent(String eventId, String userId) {
+    getAccessibleEvent(eventId, userId);
+    eventMapper.insertLike(eventId, userId);
+    return getEventById(eventId, userId);
+  }
+
+  public AppEventDto unlikeEvent(String eventId, String userId) {
+    getAccessibleEvent(eventId, userId);
+    eventMapper.deleteLike(eventId, userId);
+    return getEventById(eventId, userId);
   }
 
   public AppEventDto createEvent(CreateEventRequest request, String creatorUserId) {
@@ -201,6 +236,8 @@ public class EventService {
         row.getStatus(),
         row.getOrganizerRatingAverage() == null ? BigDecimal.ZERO : row.getOrganizerRatingAverage(),
         row.getOrganizerRatingCount(),
+        row.getLikeCount(),
+        Boolean.TRUE.equals(row.getLikedByMe()),
         row.getParticipantCount(),
         isJoinedByMe(row.getUserParticipantStatus()),
         row.getUserParticipantStatus(),
@@ -208,8 +245,28 @@ public class EventService {
         media == null || media.isEmpty() ? null : media);
   }
 
+  private List<AppEventDto> toDtosWithMedia(List<EventRow> rows) {
+    if (rows.isEmpty()) {
+      return List.of();
+    }
+
+    Map<String, List<EventMediaDto>> mediaByEventId = loadMediaByEventIds(rows);
+    return rows.stream().map((row) -> toDto(row, mediaByEventId.get(row.getId()))).toList();
+  }
+
   private EventMediaDto toMediaDto(EventMediaRow row) {
     return new EventMediaDto(row.getId(), row.getMediaType(), row.getUrl(), row.getThumbnailUrl(), row.getSortOrder());
+  }
+
+  private Map<String, List<EventMediaDto>> loadMediaByEventIds(List<EventRow> rows) {
+    List<String> eventIds = rows.stream().map(EventRow::getId).distinct().toList();
+    Map<String, List<EventMediaDto>> mediaByEventId = new HashMap<>();
+
+    for (EventMediaRow mediaRow : eventMapper.findMediaByEventIds(eventIds)) {
+      mediaByEventId.computeIfAbsent(mediaRow.getEventId(), (ignored) -> new java.util.ArrayList<>()).add(toMediaDto(mediaRow));
+    }
+
+    return mediaByEventId;
   }
 
   private EventRow requireJoinableEvent(String eventId, String userId) {
@@ -248,6 +305,45 @@ public class EventService {
 
   private boolean isJoinedByMe(String status) {
     return "joined".equals(status) || "approved".equals(status) || "waitlisted".equals(status);
+  }
+
+  private int normalizeFeedLimit(Integer limit) {
+    if (limit == null) {
+      return DEFAULT_FEED_LIMIT;
+    }
+
+    if (limit < 1 || limit > MAX_FEED_LIMIT) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST, "limit must be between 1 and " + MAX_FEED_LIMIT + ".");
+    }
+
+    return limit;
+  }
+
+  private FeedCursor parseFeedCursor(String cursor) {
+    String normalized = trimToNull(cursor);
+    if (normalized == null) {
+      return null;
+    }
+
+    try {
+      String decoded = new String(Base64.getUrlDecoder().decode(normalized), StandardCharsets.UTF_8);
+      int separatorIndex = decoded.indexOf('|');
+      if (separatorIndex <= 0 || separatorIndex >= decoded.length() - 1) {
+        throw new IllegalArgumentException("Invalid feed cursor.");
+      }
+
+      OffsetDateTime startAt = parseWhenIso(decoded.substring(0, separatorIndex), "cursor");
+      String eventId = decoded.substring(separatorIndex + 1);
+      return new FeedCursor(startAt, eventId);
+    } catch (IllegalArgumentException | ResponseStatusException exception) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid cursor format.");
+    }
+  }
+
+  private String encodeFeedCursor(EventRow row) {
+    String rawCursor = timestamp(row.getStartAt() == null ? row.getWhenIso() : row.getStartAt()) + "|" + row.getId();
+    return Base64.getUrlEncoder().withoutPadding().encodeToString(rawCursor.getBytes(StandardCharsets.UTF_8));
   }
 
   private String normalizeMyEventsFilter(String filter) {
@@ -378,4 +474,6 @@ public class EventService {
   private String timestamp(OffsetDateTime value) {
     return value == null ? null : value.toInstant().toString();
   }
+
+  private record FeedCursor(OffsetDateTime startAt, String eventId) {}
 }

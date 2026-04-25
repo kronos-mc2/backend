@@ -2,6 +2,7 @@ package hr.kronos.backend.events.persistence;
 
 public class EventMediaRow {
   private String id;
+  private String eventId;
   private String mediaType;
   private String url;
   private String thumbnailUrl;
@@ -13,6 +14,14 @@ public class EventMediaRow {
 
   public void setId(String id) {
     this.id = id;
+  }
+
+  public String getEventId() {
+    return eventId;
+  }
+
+  public void setEventId(String eventId) {
+    this.eventId = eventId;
   }
 
   public String getMediaType() {

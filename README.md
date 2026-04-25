@@ -93,10 +93,18 @@ You can override with env vars:
 ## API routes
 
 - `GET /api/events`
+- `GET /api/events/{id}`
 - `POST /api/events`
-- `GET /api/feed`
+- `POST /api/events/{id}/join`
+- `DELETE /api/events/{id}/join`
+- `POST /api/events/{id}/like`
+- `DELETE /api/events/{id}/like`
+- `GET /api/users/me/events`
+- `GET /api/users/me/liked-events`
+- `GET /api/feed?cursor=&limit=`
 - `GET /api/social/friends`
 - `GET /api/messages/conversations`
+- `POST /api/messages/conversations/{id}/share-event`
 - `POST /api/auth/register`
 - `POST /api/auth/login`
 - `POST /api/auth/google`

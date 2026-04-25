@@ -15,4 +15,25 @@
     ORDER BY updated_at DESC, id ASC
   </select>
 
+  <select id="findConversationById" resultType="hr.kronos.backend.messages.persistence.ConversationRow">
+    SELECT
+      id,
+      contact,
+      last_message_hr,
+      last_message_en,
+      time_label
+    FROM conversations
+    WHERE id = #{id}
+    LIMIT 1
+  </select>
+
+  <update id="updateConversationSharePreview">
+    UPDATE conversations
+    SET last_message_hr = #{lastMessageHr},
+        last_message_en = #{lastMessageEn},
+        time_label = TO_CHAR(NOW(), 'HH24:MI'),
+        updated_at = NOW()
+    WHERE id = #{id}
+  </update>
+
 </mapper>

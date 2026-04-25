@@ -31,6 +31,8 @@ public class EventRow {
   private String status;
   private BigDecimal organizerRatingAverage;
   private int organizerRatingCount;
+  private int likeCount;
+  private Boolean likedByMe;
   private int participantCount;
   private String userParticipantStatus;
 
@@ -248,6 +250,22 @@ public class EventRow {
 
   public void setOrganizerRatingCount(int organizerRatingCount) {
     this.organizerRatingCount = organizerRatingCount;
+  }
+
+  public int getLikeCount() {
+    return likeCount;
+  }
+
+  public void setLikeCount(int likeCount) {
+    this.likeCount = likeCount;
+  }
+
+  public Boolean getLikedByMe() {
+    return likedByMe;
+  }
+
+  public void setLikedByMe(Boolean likedByMe) {
+    this.likedByMe = likedByMe;
   }
 
   public int getParticipantCount() {

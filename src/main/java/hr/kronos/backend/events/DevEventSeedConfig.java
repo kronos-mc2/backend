@@ -1,6 +1,7 @@
 package hr.kronos.backend.events;
 
 import hr.kronos.backend.events.persistence.EventMapper;
+import hr.kronos.backend.events.persistence.EventMediaRow;
 import hr.kronos.backend.events.persistence.EventRow;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -68,6 +69,9 @@ public class DevEventSeedConfig {
 
       for (EventRow event : devEvents) {
         eventMapper.insert(event);
+        for (EventMediaRow media : buildMedia(event.getId())) {
+          eventMapper.insertMedia(media);
+        }
       }
     };
   }
@@ -107,6 +111,62 @@ public class DevEventSeedConfig {
     row.setOrganizerRatingAverage(BigDecimal.ZERO);
     row.setOrganizerRatingCount(0);
     row.setParticipantCount(participants);
+    return row;
+  }
+
+  private List<EventMediaRow> buildMedia(String eventId) {
+    return switch (eventId) {
+      case "dev-1" -> List.of(
+          media(
+              eventId + "-media-1",
+              eventId,
+              "video",
+              "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+              "https://images.unsplash.com/photo-1501386761578-eac5c94b800a?auto=format&fit=crop&w=1200&q=80",
+              0),
+          media(
+              eventId + "-media-2",
+              eventId,
+              "image",
+              "https://images.unsplash.com/photo-1492684223066-81342ee5ff30?auto=format&fit=crop&w=1200&q=80",
+              null,
+              1));
+      case "dev-2" -> List.of(
+          media(
+              eventId + "-media-1",
+              eventId,
+              "video",
+              "https://storage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+              "https://images.unsplash.com/photo-1506157786151-b8491531f063?auto=format&fit=crop&w=1200&q=80",
+              0),
+          media(
+              eventId + "-media-2",
+              eventId,
+              "image",
+              "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=1200&q=80",
+              null,
+              1));
+      case "dev-3" -> List.of(
+          media(
+              eventId + "-media-1",
+              eventId,
+              "image",
+              "https://images.unsplash.com/photo-1521334884684-d80222895322?auto=format&fit=crop&w=1200&q=80",
+              null,
+              0));
+      default -> List.of();
+    };
+  }
+
+  private EventMediaRow media(
+      String id, String eventId, String mediaType, String url, String thumbnailUrl, int sortOrder) {
+    EventMediaRow row = new EventMediaRow();
+    row.setId(id);
+    row.setEventId(eventId);
+    row.setMediaType(mediaType);
+    row.setUrl(url);
+    row.setThumbnailUrl(thumbnailUrl);
+    row.setSortOrder(sortOrder);
     return row;
   }
 }

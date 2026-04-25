@@ -28,6 +28,8 @@ public record AppEventDto(
     String status,
     BigDecimal organizerRatingAverage,
     int organizerRatingCount,
+    int likeCount,
+    Boolean likedByMe,
     int participantCount,
     Boolean joinedByMe,
     String attendanceStatus,

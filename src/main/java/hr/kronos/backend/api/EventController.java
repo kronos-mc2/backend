@@ -2,6 +2,7 @@ package hr.kronos.backend.api;
 
 import hr.kronos.backend.api.dto.AppEventDto;
 import hr.kronos.backend.api.dto.CreateEventRequest;
+import hr.kronos.backend.api.dto.FeedPageDto;
 import hr.kronos.backend.auth.AuthPrincipal;
 import hr.kronos.backend.events.EventService;
 import java.util.List;
@@ -46,15 +47,24 @@ public class EventController {
   }
 
   @GetMapping("/feed")
-  public List<AppEventDto> getFeed(Authentication authentication) {
+  public FeedPageDto getFeed(
+      @RequestParam(required = false) String cursor,
+      @RequestParam(required = false) Integer limit,
+      Authentication authentication) {
     AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
-    return eventService.getFeed(principal.userId());
+    return eventService.getFeed(principal.userId(), cursor, limit);
   }
 
   @GetMapping("/users/me/events")
   public List<AppEventDto> getMyEvents(@RequestParam(required = false) String filter, Authentication authentication) {
     AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
     return eventService.getMyEvents(principal.userId(), filter);
+  }
+
+  @GetMapping("/users/me/liked-events")
+  public List<AppEventDto> getLikedEvents(Authentication authentication) {
+    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
+    return eventService.getLikedEvents(principal.userId());
   }
 
   @PostMapping("/events")
@@ -74,5 +84,17 @@ public class EventController {
   public AppEventDto leaveEvent(@PathVariable String id, Authentication authentication) {
     AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
     return eventService.leaveEvent(id, principal.userId());
+  }
+
+  @PostMapping("/events/{id}/like")
+  public AppEventDto likeEvent(@PathVariable String id, Authentication authentication) {
+    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
+    return eventService.likeEvent(id, principal.userId());
+  }
+
+  @DeleteMapping("/events/{id}/like")
+  public AppEventDto unlikeEvent(@PathVariable String id, Authentication authentication) {
+    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
+    return eventService.unlikeEvent(id, principal.userId());
   }
 }
