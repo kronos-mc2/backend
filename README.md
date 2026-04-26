@@ -34,6 +34,23 @@ SPRING_PROFILES_ACTIVE=dev ./mvnw spring-boot:run
 
 U `dev` profilu backend logira svaki HTTP poziv (method, path, status, duration).
 
+## Tests
+
+Pokretanje svih backend testova:
+
+```bash
+export JAVA_HOME=$(/usr/libexec/java_home)
+./mvnw test
+```
+
+Trenutno su pokriveni:
+
+- `EventService` business pravila oko pristupa private eventima i `joined` filtera
+- `PasswordPolicy` validacija lozinke
+- `JwtService` generiranje/parsiranje tokena i sigurnosne granice za secret/expiration
+
+Repo ima i GitHub Actions workflow koji se vrti na svaki `push` i `pull_request` i pokrece `./mvnw test` na Java 25.
+
 ## Test deploy na Raspberry Pi
 
 Test profil je namijenjen za javni test backend iza Caddyja na domeni:
