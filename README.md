@@ -25,6 +25,12 @@ export DB_PASSWORD=gik
 export AUTH_JWT_SECRET=change-this-local-secret-to-at-least-32-bytes
 ```
 
+Lokalno mozes drzati sve vrijednosti u ignoriranom `.env` fileu. Spring Boot ga ucitava automatski kad backend pokreces iz `backend/` foldera, a helper script samo dodatno postavi `JAVA_HOME` i `SPRING_PROFILES_ACTIVE=dev`:
+
+```bash
+bash scripts/run-dev.sh
+```
+
 
 
 ```bash
@@ -40,6 +46,23 @@ SPRING_PROFILES_ACTIVE=dev ./mvnw spring-boot:run
 ```
 
 U `dev` profilu backend logira svaki HTTP poziv (method, path, status, duration).
+
+## IntelliJ run
+
+Za pokretanje iz IntelliJ IDEA:
+
+1. Otvori `backend` kao Maven/Spring Boot projekt ili napravi Spring Boot run configuration za `hr.kronos.backend.BackendApplication`.
+2. Postavi JDK na Java 25.
+3. Postavi `Working directory` na apsolutni `backend` folder, npr. `/Users/dgulic/Projects/KRONOS-GIK/backend`.
+4. Postavi `Active profiles` na `dev` ili dodaj env varijablu `SPRING_PROFILES_ACTIVE=dev`.
+5. Ne moras rucno dodavati `DB_PASSWORD`, `AUTH_JWT_SECRET` i ostale lokalne varijable ako postoji `backend/.env`, jer ga Spring ucitava preko `spring.config.import`.
+
+Config import podrzava oba najcesca working directoryja:
+
+- `backend/` -> cita `.env`
+- parent folder `KRONOS-GIK/` -> cita `backend/.env`
+
+Ako IntelliJ i dalje ne ucita `.env`, u run configurationu rucno dodaj env varijablu `AUTH_JWT_SECRET` ili provjeri da working directory nije neki treci folder.
 
 ## Tests
 

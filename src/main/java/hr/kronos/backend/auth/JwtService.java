@@ -4,6 +4,7 @@ import hr.kronos.backend.auth.persistence.UserRow;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.Decoders;
+import io.jsonwebtoken.io.DecodingException;
 import io.jsonwebtoken.security.Keys;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -53,7 +54,7 @@ public class JwtService {
     byte[] bytes;
     try {
       bytes = Decoders.BASE64.decode(jwtSecret);
-    } catch (IllegalArgumentException ignored) {
+    } catch (IllegalArgumentException | DecodingException ignored) {
       bytes = jwtSecret.getBytes(StandardCharsets.UTF_8);
     }
 

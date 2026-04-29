@@ -43,6 +43,16 @@ class JwtServiceTest {
   }
 
   @Test
+  void acceptsPlainTextSecretsWhenTheyAreNotBase64() {
+    JwtService jwtService = new JwtService("local_dev_jwt_secret_change_me_32_bytes_minimum", 3600);
+    UserRow user = buildUser();
+
+    var claims = jwtService.parseClaims(jwtService.createToken(user));
+
+    assertEquals("usr_123", claims.getSubject());
+  }
+
+  @Test
   void rejectsExpirationsLongerThanThirtyDays() {
     IllegalStateException exception =
         assertThrows(IllegalStateException.class, () -> new JwtService(VALID_SECRET, 2592001));
