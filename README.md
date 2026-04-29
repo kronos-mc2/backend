@@ -18,6 +18,13 @@ docker run -d --name gik-pg \
   postgres
 ```
 
+Backend cita osjetljive vrijednosti iz env varijabli. Za lokalni run prije starta postavi barem:
+
+```bash
+export DB_PASSWORD=gik
+export AUTH_JWT_SECRET=change-this-local-secret-to-at-least-32-bytes
+```
+
 
 
 ```bash
@@ -53,9 +60,7 @@ Repo ima i GitHub Actions workflow koji se vrti na svaki `push` i `pull_request`
 
 ## Test deploy na Raspberry Pi
 
-Test profil je namijenjen za javni test backend iza Caddyja na domeni:
-
-- `https://test-api-gik.nerizz.com`
+Test profil je namijenjen za javni test backend iza Caddyja na domeni koju postavis u svojem DNS-u.
 
 Priprema env filea:
 
@@ -77,12 +82,12 @@ cd backend
 podman compose -f deploy/test/compose.podman.yml up -d --build
 ```
 
-Caddy reverse-proxyja `test-api-gik.nerizz.com` na backend container i sam izdaje TLS certifikat. U Cloudflareu DNS record za `test-api-gik.nerizz.com` treba pokazivati na javni IP Raspberry Pi-ja, a portovi `80` i `443` moraju biti dostupni prema Pi-ju.
+Caddy reverse-proxyja tvoju test API domenu na backend container i sam izdaje TLS certifikat. U DNS-u record za tu domenu treba pokazivati na javni IP Raspberry Pi-ja, a portovi `80` i `443` moraju biti dostupni prema Pi-ju.
 
 Provjera:
 
 ```bash
-curl https://test-api-gik.nerizz.com/health
+curl https://your-test-api.example.com/health
 ```
 
 Ocekivani odgovor:
@@ -95,7 +100,7 @@ Default DB connection:
 
 - `jdbc:postgresql://localhost:5432/gik`
 - username: `gik`
-- password: `gik`
+- password: set through `DB_PASSWORD`
 
 You can override with env vars:
 

@@ -37,4 +37,20 @@ build/
 .env.*
 !.env.example
 .env*.local
-deploy/test/backend.env
+
+# deployment env files
+deploy/**/backend.env
+deploy/**/*.env
+
+# secrets / credentials
+*.pem
+*.key
+*.p8
+*.p12
+*.jks
+*.keystore
+*.mobileprovision
+google-services.json
+GoogleService-Info.plist
+service-account*.json
+credentials*.json
