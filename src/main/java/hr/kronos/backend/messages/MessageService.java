@@ -1,58 +1,400 @@
 package hr.kronos.backend.messages;
 
+import hr.kronos.backend.api.dto.ChatMemberDto;
+import hr.kronos.backend.api.dto.ChatMessageDto;
+import hr.kronos.backend.api.dto.ChatPersonDto;
+import hr.kronos.backend.api.dto.ChatRoomDetailDto;
+import hr.kronos.backend.api.dto.ChatRoomDto;
 import hr.kronos.backend.api.dto.ConversationDto;
+import hr.kronos.backend.api.dto.CreateChatRoomRequest;
+import hr.kronos.backend.api.dto.CreatePollRequest;
+import hr.kronos.backend.api.dto.EventSharePreviewDto;
 import hr.kronos.backend.api.dto.LocalizedTextDto;
+import hr.kronos.backend.api.dto.PollDto;
+import hr.kronos.backend.api.dto.PollOptionDto;
+import hr.kronos.backend.api.dto.VotePollRequest;
+import hr.kronos.backend.auth.persistence.AuthMapper;
+import hr.kronos.backend.auth.persistence.UserRow;
 import hr.kronos.backend.events.persistence.EventMapper;
+import hr.kronos.backend.events.persistence.EventMediaRow;
 import hr.kronos.backend.events.persistence.EventRow;
-import hr.kronos.backend.messages.persistence.MessageMapper;
+import hr.kronos.backend.messages.persistence.ChatMemberRow;
+import hr.kronos.backend.messages.persistence.ChatMessageRow;
+import hr.kronos.backend.messages.persistence.ChatPersonRow;
+import hr.kronos.backend.messages.persistence.ChatRoomRow;
 import hr.kronos.backend.messages.persistence.ConversationRow;
+import hr.kronos.backend.messages.persistence.MessageMapper;
+import hr.kronos.backend.messages.persistence.PollOptionRow;
+import hr.kronos.backend.messages.persistence.PollRow;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class MessageService {
+  private static final int MAX_MESSAGE_LENGTH = 4000;
+  private static final int MAX_POLL_OPTIONS = 8;
+  private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
+
   private final MessageMapper messageMapper;
   private final EventMapper eventMapper;
+  private final AuthMapper authMapper;
 
-  public MessageService(MessageMapper messageMapper, EventMapper eventMapper) {
+  public MessageService(MessageMapper messageMapper, EventMapper eventMapper, AuthMapper authMapper) {
     this.messageMapper = messageMapper;
     this.eventMapper = eventMapper;
+    this.authMapper = authMapper;
   }
 
   public List<ConversationDto> getConversations() {
-    return messageMapper.findConversations().stream()
-        .map(this::toDto)
+    return messageMapper.findConversations().stream().map(this::toDto).toList();
+  }
+
+  public List<ChatRoomDto> getChatRooms(String userId, String query) {
+    return messageMapper.findRoomsForUser(userId, trimToNull(query)).stream()
+        .map((room) -> toRoomDto(room, null))
         .toList();
   }
 
-  public ConversationDto shareEvent(String conversationId, String eventId, String userId) {
-    if (eventId == null || eventId.isBlank()) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "eventId is required.");
+  public ChatRoomDetailDto getChatRoom(String roomId, String userId) {
+    ChatRoomRow room = requireRoom(roomId, userId);
+    List<ChatMemberDto> members = messageMapper.findMembersForRoom(roomId).stream().map(this::toMemberDto).toList();
+    List<ChatMessageDto> messages = messageMapper.findMessagesForRoom(roomId, userId).stream()
+        .map((message) -> toMessageDto(message, userId))
+        .toList();
+
+    if (!messages.isEmpty()) {
+      messageMapper.markRoomRead(roomId, userId, messages.get(messages.size() - 1).id());
     }
 
-    ConversationRow conversation = messageMapper.findConversationById(conversationId);
-    if (conversation == null) {
-      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Conversation not found.");
+    return new ChatRoomDetailDto(toRoomDto(room, members), messages);
+  }
+
+  public List<ChatMessageDto> getMessages(String roomId, String userId) {
+    requireRoom(roomId, userId);
+    List<ChatMessageDto> messages = messageMapper.findMessagesForRoom(roomId, userId).stream()
+        .map((message) -> toMessageDto(message, userId))
+        .toList();
+
+    if (!messages.isEmpty()) {
+      messageMapper.markRoomRead(roomId, userId, messages.get(messages.size() - 1).id());
     }
 
+    return messages;
+  }
+
+  public List<ChatPersonDto> searchPeople(String userId, String query) {
+    return messageMapper.searchPeople(userId, trimToNull(query)).stream().map(this::toPersonDto).toList();
+  }
+
+  public ChatRoomDto createChatRoom(CreateChatRoomRequest request, String userId) {
+    String type = normalizeRoomType(request.type());
+    if ("event".equals(type)) {
+      if (request.eventId() == null || request.eventId().isBlank()) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "eventId is required.");
+      }
+      return getOrCreateEventChatRoom(request.eventId(), userId);
+    }
+
+    if ("direct".equals(type)) {
+      String memberUserId = trimToNull(request.memberUserId());
+      if (memberUserId == null) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "memberUserId is required.");
+      }
+      if (memberUserId.equals(userId)) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot create a direct chat with yourself.");
+      }
+
+      UserRow targetUser = authMapper.findById(memberUserId);
+      if (targetUser == null) {
+        throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found.");
+      }
+
+      ChatRoomRow existing = messageMapper.findDirectRoomForUsers(userId, memberUserId);
+      if (existing != null) {
+        return toRoomDto(existing, messageMapper.findMembersForRoom(existing.getId()).stream().map(this::toMemberDto).toList());
+      }
+
+      ChatRoomRow room = newRoom("direct", null, null, false, userId);
+      messageMapper.insertRoom(room);
+      messageMapper.insertMember(room.getId(), userId, "owner");
+      messageMapper.insertMember(room.getId(), memberUserId, "member");
+      return getChatRoom(room.getId(), userId).room();
+    }
+
+    String title = trimToNull(request.title());
+    if (title == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "title is required.");
+    }
+
+    ChatRoomRow room = newRoom("group", title, null, false, userId);
+    messageMapper.insertRoom(room);
+    messageMapper.insertMember(room.getId(), userId, "owner");
+    for (String memberUserId : uniqueMemberIds(request.memberUserIds(), userId)) {
+      if (authMapper.findById(memberUserId) != null) {
+        messageMapper.insertMember(room.getId(), memberUserId, "member");
+      }
+    }
+    return getChatRoom(room.getId(), userId).room();
+  }
+
+  public ChatRoomDto getOrCreateEventChatRoom(String eventId, String userId) {
     EventRow event = eventMapper.findAccessibleById(eventId, userId);
     if (event == null) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found.");
     }
 
-    messageMapper.updateConversationSharePreview(
-        conversationId,
-        "Podijeljen event: " + event.getTitleHr(),
-        "Shared event: " + event.getTitleEn());
+    ChatRoomRow existing = messageMapper.findEventRoomForUser(eventId, userId);
+    if (existing != null) {
+      ensureMember(existing.getId(), userId, event.getCreatorUserId() != null && event.getCreatorUserId().equals(userId) ? "owner" : "member");
+      ChatRoomRow refreshed = requireRoom(existing.getId(), userId);
+      return toRoomDto(refreshed, messageMapper.findMembersForRoom(refreshed.getId()).stream().map(this::toMemberDto).toList());
+    }
 
+    boolean creatorIsCurrentUser = event.getCreatorUserId() != null && event.getCreatorUserId().equals(userId);
+    ChatRoomRow room = newRoom("event", event.getTitleHr(), eventId, false, userId);
+    messageMapper.insertRoom(room);
+    messageMapper.insertMember(room.getId(), userId, creatorIsCurrentUser ? "owner" : "member");
+    if (event.getCreatorUserId() != null && !event.getCreatorUserId().equals(userId)) {
+      messageMapper.insertMember(room.getId(), event.getCreatorUserId(), "owner");
+    }
+    return getChatRoom(room.getId(), userId).room();
+  }
+
+  public ChatRoomDto updateChatRoom(String roomId, Boolean adminOnly, String userId) {
+    ChatRoomRow room = requireRoom(roomId, userId);
+    requireAdmin(room, userId);
+    if (adminOnly != null) {
+      messageMapper.updateRoomAdminOnly(roomId, adminOnly);
+    }
+    return getChatRoom(roomId, userId).room();
+  }
+
+  public ChatMessageDto sendTextMessage(String roomId, String body, String userId) {
+    ChatRoomRow room = requireRoom(roomId, userId);
+    requireCanWrite(room, userId);
+
+    String normalizedBody = trimToNull(body);
+    if (normalizedBody == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "body is required.");
+    }
+    if (normalizedBody.length() > MAX_MESSAGE_LENGTH) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Message is too long.");
+    }
+
+    ChatMessageRow message = newMessage(roomId, userId, "text", normalizedBody, null, null);
+    messageMapper.insertMessage(message);
+    messageMapper.touchRoom(roomId);
+    return toMessageDto(messageMapper.findMessageById(message.getId(), userId), userId);
+  }
+
+  public ChatMessageDto shareEvent(String roomId, String eventId, String userId) {
+    if (eventId == null || eventId.isBlank()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "eventId is required.");
+    }
+
+    ChatRoomRow room = requireRoom(roomId, userId);
+    requireCanWrite(room, userId);
+    EventRow event = eventMapper.findAccessibleById(eventId, userId);
+    if (event == null) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found.");
+    }
+
+    ChatMessageRow message = newMessage(roomId, userId, "event_share", null, eventId, null);
+    messageMapper.insertMessage(message);
+    messageMapper.touchRoom(roomId);
+    updateLegacyConversationPreview(roomId, event);
+    return toMessageDto(messageMapper.findMessageById(message.getId(), userId), userId);
+  }
+
+  public ConversationDto shareEventToLegacyConversation(String conversationId, String eventId, String userId) {
+    shareEvent(conversationId, eventId, userId);
     ConversationRow updatedConversation = messageMapper.findConversationById(conversationId);
     if (updatedConversation == null) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Conversation not found.");
     }
-
     return toDto(updatedConversation);
+  }
+
+  public ChatMessageDto createPoll(String roomId, CreatePollRequest request, String userId) {
+    ChatRoomRow room = requireRoom(roomId, userId);
+    requireCanWrite(room, userId);
+
+    String question = trimToNull(request.question());
+    if (question == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "question is required.");
+    }
+
+    List<String> options = normalizePollOptions(request.options());
+    PollRow poll = new PollRow();
+    poll.setId(prefixedId("poll"));
+    poll.setRoomId(roomId);
+    poll.setQuestion(question);
+    poll.setAllowMultiple(Boolean.TRUE.equals(request.allowMultiple()));
+    poll.setCreatedByUserId(userId);
+    messageMapper.insertPoll(poll);
+
+    for (int index = 0; index < options.size(); index++) {
+      PollOptionRow option = new PollOptionRow();
+      option.setId(prefixedId("poll-option"));
+      option.setPollId(poll.getId());
+      option.setText(options.get(index));
+      option.setSortOrder(index);
+      messageMapper.insertPollOption(option);
+    }
+
+    ChatMessageRow message = newMessage(roomId, userId, "poll", question, null, poll.getId());
+    messageMapper.insertMessage(message);
+    messageMapper.touchRoom(roomId);
+    return toMessageDto(messageMapper.findMessageById(message.getId(), userId), userId);
+  }
+
+  public PollDto votePoll(String pollId, VotePollRequest request, String userId) {
+    PollRow poll = messageMapper.findPollById(pollId);
+    if (poll == null) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Poll not found.");
+    }
+    requireRoom(poll.getRoomId(), userId);
+
+    List<String> optionIds = normalizeVoteOptions(request.optionIds());
+    Set<String> validOptionIds = new LinkedHashSet<>(
+        messageMapper.findPollOptions(pollId, userId).stream().map(PollOptionRow::getId).toList());
+    for (String optionId : optionIds) {
+      if (!validOptionIds.contains(optionId)) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid poll option.");
+      }
+    }
+
+    if (!Boolean.TRUE.equals(poll.getAllowMultiple()) && optionIds.size() > 1) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Poll accepts one option.");
+    }
+
+    messageMapper.deletePollVotesForUser(pollId, userId);
+    for (String optionId : optionIds) {
+      messageMapper.insertPollVote(pollId, optionId, userId);
+    }
+
+    return toPollDto(poll, userId);
+  }
+
+  private ChatRoomRow requireRoom(String roomId, String userId) {
+    ChatRoomRow room = messageMapper.findRoomForUser(roomId, userId);
+    if (room == null) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Chat room not found.");
+    }
+    return room;
+  }
+
+  private void requireCanWrite(ChatRoomRow room, String userId) {
+    if (!Boolean.TRUE.equals(room.getAdminOnly())) {
+      return;
+    }
+    requireAdmin(room, userId);
+  }
+
+  private void requireAdmin(ChatRoomRow room, String userId) {
+    ChatMemberRow member = messageMapper.findMember(room.getId(), userId);
+    if (member == null || (!"owner".equals(member.getRole()) && !"admin".equals(member.getRole()))) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only admins can do this.");
+    }
+  }
+
+  private void ensureMember(String roomId, String userId, String role) {
+    if (messageMapper.findMember(roomId, userId) == null) {
+      messageMapper.insertMember(roomId, userId, role);
+    }
+  }
+
+  private ChatRoomDto toRoomDto(ChatRoomRow row, List<ChatMemberDto> members) {
+    return new ChatRoomDto(
+        row.getId(),
+        row.getRoomType(),
+        firstNonBlank(row.getDisplayTitle(), row.getTitle(), "Razgovor"),
+        row.getSubtitle(),
+        row.getLastMessage(),
+        timestamp(row.getLastMessageAt()),
+        row.getTimeLabel(),
+        row.getUnreadCount() == null ? 0 : row.getUnreadCount(),
+        row.getMemberCount() == null ? 0 : row.getMemberCount(),
+        row.getMyRole(),
+        Boolean.TRUE.equals(row.getAdminOnly()),
+        row.getEventId(),
+        members);
+  }
+
+  private ChatMessageDto toMessageDto(ChatMessageRow row, String userId) {
+    return new ChatMessageDto(
+        row.getId(),
+        row.getRoomId(),
+        row.getMessageType(),
+        row.getBody(),
+        row.getSenderUserId(),
+        row.getSenderName(),
+        timestamp(row.getCreatedAt()),
+        row.getCreatedAt() == null ? null : TIME_FORMATTER.format(row.getCreatedAt()),
+        row.getSenderUserId() != null && row.getSenderUserId().equals(userId),
+        row.getEventId() == null ? null : toEventSharePreview(row.getEventId(), userId),
+        row.getPollId() == null ? null : toPollDto(messageMapper.findPollById(row.getPollId()), userId));
+  }
+
+  private PollDto toPollDto(PollRow poll, String userId) {
+    if (poll == null) {
+      return null;
+    }
+
+    List<PollOptionDto> options = messageMapper.findPollOptions(poll.getId(), userId).stream().map(this::toPollOptionDto).toList();
+    List<String> myOptionIds = options.stream().filter(PollOptionDto::votedByMe).map(PollOptionDto::id).toList();
+    return new PollDto(
+        poll.getId(),
+        poll.getQuestion(),
+        Boolean.TRUE.equals(poll.getAllowMultiple()),
+        messageMapper.countPollVotes(poll.getId()),
+        poll.getClosesAt() != null && poll.getClosesAt().isBefore(OffsetDateTime.now()),
+        myOptionIds,
+        options);
+  }
+
+  private EventSharePreviewDto toEventSharePreview(String eventId, String userId) {
+    EventRow event = eventMapper.findAccessibleById(eventId, userId);
+    if (event == null) {
+      return null;
+    }
+
+    String coverUrl = eventMapper.findMediaByEventId(eventId).stream()
+        .findFirst()
+        .map(EventMediaRow::getThumbnailUrl)
+        .orElseGet(() -> eventMapper.findMediaByEventId(eventId).stream().findFirst().map(EventMediaRow::getUrl).orElse(null));
+
+    return new EventSharePreviewDto(
+        event.getId(),
+        new LocalizedTextDto(event.getTitleHr(), event.getTitleEn()),
+        new LocalizedTextDto(event.getWhereHr(), event.getWhereEn()),
+        new LocalizedTextDto(event.getAboutHr(), event.getAboutEn()),
+        timestamp(event.getStartAt() == null ? event.getWhenIso() : event.getStartAt()),
+        coverUrl);
+  }
+
+  private PollOptionDto toPollOptionDto(PollOptionRow row) {
+    return new PollOptionDto(
+        row.getId(),
+        row.getText(),
+        row.getVoteCount() == null ? 0 : row.getVoteCount(),
+        Boolean.TRUE.equals(row.getVotedByMe()));
+  }
+
+  private ChatMemberDto toMemberDto(ChatMemberRow row) {
+    return new ChatMemberDto(row.getUserId(), row.getFullName(), row.getRole());
+  }
+
+  private ChatPersonDto toPersonDto(ChatPersonRow row) {
+    return new ChatPersonDto(row.getId(), row.getFullName(), row.getEmail());
   }
 
   private ConversationDto toDto(ConversationRow row) {
@@ -61,5 +403,107 @@ public class MessageService {
         row.getContact(),
         new LocalizedTextDto(row.getLastMessageHr(), row.getLastMessageEn()),
         row.getTimeLabel());
+  }
+
+  private ChatRoomRow newRoom(String roomType, String title, String eventId, boolean adminOnly, String userId) {
+    ChatRoomRow row = new ChatRoomRow();
+    row.setId(prefixedId("chat"));
+    row.setRoomType(roomType);
+    row.setTitle(title);
+    row.setEventId(eventId);
+    row.setAdminOnly(adminOnly);
+    row.setCreatedByUserId(userId);
+    return row;
+  }
+
+  private ChatMessageRow newMessage(String roomId, String userId, String type, String body, String eventId, String pollId) {
+    ChatMessageRow row = new ChatMessageRow();
+    row.setId(prefixedId("msg"));
+    row.setRoomId(roomId);
+    row.setSenderUserId(userId);
+    row.setMessageType(type);
+    row.setBody(body);
+    row.setEventId(eventId);
+    row.setPollId(pollId);
+    return row;
+  }
+
+  private List<String> normalizePollOptions(List<String> rawOptions) {
+    if (rawOptions == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "options are required.");
+    }
+
+    List<String> options = rawOptions.stream().map(this::trimToNull).filter((value) -> value != null).distinct().toList();
+    if (options.size() < 2) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Poll requires at least two options.");
+    }
+    if (options.size() > MAX_POLL_OPTIONS) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Poll accepts up to " + MAX_POLL_OPTIONS + " options.");
+    }
+    return options;
+  }
+
+  private List<String> normalizeVoteOptions(List<String> rawOptionIds) {
+    if (rawOptionIds == null || rawOptionIds.isEmpty()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "optionIds are required.");
+    }
+    return rawOptionIds.stream().map(this::trimToNull).filter((value) -> value != null).distinct().toList();
+  }
+
+  private List<String> uniqueMemberIds(List<String> memberUserIds, String currentUserId) {
+    if (memberUserIds == null) {
+      return List.of();
+    }
+
+    Set<String> unique = new LinkedHashSet<>();
+    for (String memberUserId : memberUserIds) {
+      String normalized = trimToNull(memberUserId);
+      if (normalized != null && !normalized.equals(currentUserId)) {
+        unique.add(normalized);
+      }
+    }
+    return new ArrayList<>(unique);
+  }
+
+  private String normalizeRoomType(String type) {
+    String normalized = trimToNull(type);
+    if (normalized == null) {
+      return "direct";
+    }
+    if (!"direct".equals(normalized) && !"group".equals(normalized) && !"event".equals(normalized)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported room type.");
+    }
+    return normalized;
+  }
+
+  private void updateLegacyConversationPreview(String conversationId, EventRow event) {
+    messageMapper.updateConversationSharePreview(
+        conversationId,
+        "Podijeljen event: " + event.getTitleHr(),
+        "Shared event: " + event.getTitleEn());
+  }
+
+  private String trimToNull(String value) {
+    if (value == null || value.isBlank()) {
+      return null;
+    }
+    return value.trim();
+  }
+
+  private String firstNonBlank(String first, String second, String fallback) {
+    String normalizedFirst = trimToNull(first);
+    if (normalizedFirst != null) {
+      return normalizedFirst;
+    }
+    String normalizedSecond = trimToNull(second);
+    return normalizedSecond == null ? fallback : normalizedSecond;
+  }
+
+  private String timestamp(OffsetDateTime value) {
+    return value == null ? null : value.toString();
+  }
+
+  private String prefixedId(String prefix) {
+    return prefix + "-" + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
   }
 }

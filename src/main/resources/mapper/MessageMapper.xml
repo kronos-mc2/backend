@@ -4,6 +4,65 @@
   "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="hr.kronos.backend.messages.persistence.MessageMapper">
 
+  <sql id="roomListColumns">
+    cr.id,
+    cr.room_type,
+    cr.title,
+    cr.event_id,
+    cr.is_admin_only AS admin_only,
+    cr.created_by_user_id,
+    cr.created_at,
+    cr.updated_at,
+    COALESCE(
+      cr.title,
+      CASE
+        WHEN cr.room_type = 'direct' THEN (
+          SELECT u.full_name
+          FROM chat_members cm_other
+          INNER JOIN app_users u ON u.id = cm_other.user_id
+          WHERE cm_other.room_id = cr.id
+            AND cm_other.user_id &lt;&gt; #{userId}
+          ORDER BY u.full_name ASC
+          LIMIT 1
+        )
+        ELSE NULL
+      END,
+      'Razgovor'
+    ) AS display_title,
+    CASE
+      WHEN cr.room_type = 'event' THEN 'Event grupa'
+      WHEN cr.is_admin_only THEN 'Admin-only'
+      WHEN cr.room_type = 'group' THEN 'Grupa'
+      ELSE 'Privatni razgovor'
+    END AS subtitle,
+    COALESCE(
+      CASE lm.message_type
+        WHEN 'event_share' THEN 'Podijeljen event'
+        WHEN 'poll' THEN 'Poll'
+        ELSE lm.body
+      END,
+      'Nema poruka jos.'
+    ) AS last_message,
+    lm.created_at AS last_message_at,
+    COALESCE(TO_CHAR(lm.created_at, 'HH24:MI'), TO_CHAR(cr.updated_at, 'HH24:MI')) AS time_label,
+    (
+      SELECT COUNT(*)
+      FROM messages unread
+      LEFT JOIN message_reads mr
+        ON mr.room_id = cr.id
+        AND mr.user_id = #{userId}
+      WHERE unread.room_id = cr.id
+        AND unread.sender_user_id IS DISTINCT FROM #{userId}
+        AND (mr.read_at IS NULL OR unread.created_at &gt; mr.read_at)
+    ) AS unread_count,
+    (
+      SELECT COUNT(*)
+      FROM chat_members member_count
+      WHERE member_count.room_id = cr.id
+    ) AS member_count,
+    cm.role AS my_role
+  </sql>
+
   <select id="findConversations" resultType="hr.kronos.backend.messages.persistence.ConversationRow">
     SELECT
       id,
@@ -26,6 +85,353 @@
     WHERE id = #{id}
     LIMIT 1
   </select>
+
+  <select id="findRoomsForUser" resultType="hr.kronos.backend.messages.persistence.ChatRoomRow">
+    SELECT
+      <include refid="roomListColumns" />
+    FROM chat_rooms cr
+    LEFT JOIN chat_members cm
+      ON cm.room_id = cr.id
+      AND cm.user_id = #{userId}
+    LEFT JOIN LATERAL (
+      SELECT *
+      FROM messages m
+      WHERE m.room_id = cr.id
+      ORDER BY m.created_at DESC, m.id DESC
+      LIMIT 1
+    ) lm ON TRUE
+    WHERE cm.user_id IS NOT NULL
+      <if test="query != null and query != ''">
+        AND (
+          cr.title ILIKE '%' || #{query} || '%'
+          OR EXISTS (
+            SELECT 1
+            FROM chat_members cm_query
+            INNER JOIN app_users u_query ON u_query.id = cm_query.user_id
+            WHERE cm_query.room_id = cr.id
+              AND u_query.full_name ILIKE '%' || #{query} || '%'
+          )
+          OR lm.body ILIKE '%' || #{query} || '%'
+        )
+      </if>
+    ORDER BY COALESCE(lm.created_at, cr.updated_at) DESC, cr.id ASC
+  </select>
+
+  <select id="findRoomForUser" resultType="hr.kronos.backend.messages.persistence.ChatRoomRow">
+    SELECT
+      <include refid="roomListColumns" />
+    FROM chat_rooms cr
+    LEFT JOIN chat_members cm
+      ON cm.room_id = cr.id
+      AND cm.user_id = #{userId}
+    LEFT JOIN LATERAL (
+      SELECT *
+      FROM messages m
+      WHERE m.room_id = cr.id
+      ORDER BY m.created_at DESC, m.id DESC
+      LIMIT 1
+    ) lm ON TRUE
+    WHERE cr.id = #{roomId}
+      AND cm.user_id IS NOT NULL
+    LIMIT 1
+  </select>
+
+  <select id="findEventRoomForUser" resultType="hr.kronos.backend.messages.persistence.ChatRoomRow">
+    SELECT
+      <include refid="roomListColumns" />
+    FROM chat_rooms cr
+    LEFT JOIN chat_members cm
+      ON cm.room_id = cr.id
+      AND cm.user_id = #{userId}
+    LEFT JOIN LATERAL (
+      SELECT *
+      FROM messages m
+      WHERE m.room_id = cr.id
+      ORDER BY m.created_at DESC, m.id DESC
+      LIMIT 1
+    ) lm ON TRUE
+    WHERE cr.room_type = 'event'
+      AND cr.event_id = #{eventId}
+    LIMIT 1
+  </select>
+
+  <select id="findDirectRoomForUsers" resultType="hr.kronos.backend.messages.persistence.ChatRoomRow">
+    SELECT
+      <include refid="roomListColumns" />
+    FROM chat_rooms cr
+    INNER JOIN chat_members cm
+      ON cm.room_id = cr.id
+      AND cm.user_id = #{userId}
+    LEFT JOIN LATERAL (
+      SELECT *
+      FROM messages m
+      WHERE m.room_id = cr.id
+      ORDER BY m.created_at DESC, m.id DESC
+      LIMIT 1
+    ) lm ON TRUE
+    WHERE cr.room_type = 'direct'
+      AND EXISTS (
+        SELECT 1
+        FROM chat_members target_member
+        WHERE target_member.room_id = cr.id
+          AND target_member.user_id = #{memberUserId}
+      )
+      AND (
+        SELECT COUNT(*)
+        FROM chat_members direct_count
+        WHERE direct_count.room_id = cr.id
+      ) = 2
+    LIMIT 1
+  </select>
+
+  <select id="findMessagesForRoom" resultType="hr.kronos.backend.messages.persistence.ChatMessageRow">
+    SELECT
+      m.id,
+      m.room_id,
+      m.sender_user_id,
+      u.full_name AS sender_name,
+      m.message_type,
+      m.body,
+      m.event_id,
+      m.poll_id,
+      m.created_at
+    FROM messages m
+    LEFT JOIN app_users u ON u.id = m.sender_user_id
+    WHERE m.room_id = #{roomId}
+    ORDER BY m.created_at ASC, m.id ASC
+  </select>
+
+  <select id="findMessageById" resultType="hr.kronos.backend.messages.persistence.ChatMessageRow">
+    SELECT
+      m.id,
+      m.room_id,
+      m.sender_user_id,
+      u.full_name AS sender_name,
+      m.message_type,
+      m.body,
+      m.event_id,
+      m.poll_id,
+      m.created_at
+    FROM messages m
+    LEFT JOIN app_users u ON u.id = m.sender_user_id
+    WHERE m.id = #{messageId}
+    LIMIT 1
+  </select>
+
+  <select id="findMembersForRoom" resultType="hr.kronos.backend.messages.persistence.ChatMemberRow">
+    SELECT
+      cm.room_id,
+      cm.user_id,
+      u.full_name,
+      cm.role
+    FROM chat_members cm
+    INNER JOIN app_users u ON u.id = cm.user_id
+    WHERE cm.room_id = #{roomId}
+    ORDER BY
+      CASE cm.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END,
+      u.full_name ASC
+  </select>
+
+  <select id="findMember" resultType="hr.kronos.backend.messages.persistence.ChatMemberRow">
+    SELECT
+      cm.room_id,
+      cm.user_id,
+      u.full_name,
+      cm.role
+    FROM chat_members cm
+    INNER JOIN app_users u ON u.id = cm.user_id
+    WHERE cm.room_id = #{roomId}
+      AND cm.user_id = #{userId}
+    LIMIT 1
+  </select>
+
+  <select id="searchPeople" resultType="hr.kronos.backend.messages.persistence.ChatPersonRow">
+    SELECT
+      id,
+      full_name,
+      email
+    FROM app_users
+    WHERE id &lt;&gt; #{userId}
+      <if test="query != null and query != ''">
+        AND (full_name ILIKE '%' || #{query} || '%' OR email ILIKE '%' || #{query} || '%')
+      </if>
+    ORDER BY full_name ASC
+    LIMIT 20
+  </select>
+
+  <select id="findPollById" resultType="hr.kronos.backend.messages.persistence.PollRow">
+    SELECT
+      id,
+      room_id,
+      question,
+      allow_multiple,
+      created_by_user_id,
+      closes_at,
+      created_at
+    FROM polls
+    WHERE id = #{pollId}
+    LIMIT 1
+  </select>
+
+  <select id="findPollOptions" resultType="hr.kronos.backend.messages.persistence.PollOptionRow">
+    SELECT
+      po.id,
+      po.poll_id,
+      po.text,
+      po.sort_order,
+      COUNT(pv.option_id)::INTEGER AS vote_count,
+      EXISTS (
+        SELECT 1
+        FROM poll_votes my_vote
+        WHERE my_vote.poll_id = po.poll_id
+          AND my_vote.option_id = po.id
+          AND my_vote.user_id = #{userId}
+      ) AS voted_by_me
+    FROM poll_options po
+    LEFT JOIN poll_votes pv
+      ON pv.poll_id = po.poll_id
+      AND pv.option_id = po.id
+    WHERE po.poll_id = #{pollId}
+    GROUP BY po.id, po.poll_id, po.text, po.sort_order
+    ORDER BY po.sort_order ASC, po.id ASC
+  </select>
+
+  <select id="countPollVotes" resultType="int">
+    SELECT COUNT(*)::INTEGER
+    FROM poll_votes
+    WHERE poll_id = #{pollId}
+  </select>
+
+  <insert id="insertRoom" parameterType="hr.kronos.backend.messages.persistence.ChatRoomRow">
+    INSERT INTO chat_rooms (
+      id,
+      room_type,
+      title,
+      event_id,
+      is_admin_only,
+      created_by_user_id
+    ) VALUES (
+      #{id},
+      #{roomType},
+      #{title},
+      #{eventId},
+      #{adminOnly},
+      #{createdByUserId}
+    )
+  </insert>
+
+  <insert id="insertMember">
+    INSERT INTO chat_members (
+      room_id,
+      user_id,
+      role
+    ) VALUES (
+      #{roomId},
+      #{userId},
+      #{role}
+    )
+    ON CONFLICT (room_id, user_id) DO UPDATE SET role = chat_members.role
+  </insert>
+
+  <update id="updateRoomAdminOnly">
+    UPDATE chat_rooms
+    SET is_admin_only = #{adminOnly},
+        updated_at = NOW()
+    WHERE id = #{roomId}
+  </update>
+
+  <update id="touchRoom">
+    UPDATE chat_rooms
+    SET updated_at = NOW()
+    WHERE id = #{roomId}
+  </update>
+
+  <insert id="insertMessage" parameterType="hr.kronos.backend.messages.persistence.ChatMessageRow">
+    INSERT INTO messages (
+      id,
+      room_id,
+      sender_user_id,
+      message_type,
+      body,
+      event_id,
+      poll_id
+    ) VALUES (
+      #{id},
+      #{roomId},
+      #{senderUserId},
+      #{messageType},
+      #{body},
+      #{eventId},
+      #{pollId}
+    )
+  </insert>
+
+  <insert id="markRoomRead">
+    INSERT INTO message_reads (
+      room_id,
+      user_id,
+      last_read_message_id,
+      read_at
+    ) VALUES (
+      #{roomId},
+      #{userId},
+      #{messageId},
+      NOW()
+    )
+    ON CONFLICT (room_id, user_id)
+    DO UPDATE SET
+      last_read_message_id = EXCLUDED.last_read_message_id,
+      read_at = EXCLUDED.read_at
+  </insert>
+
+  <insert id="insertPoll" parameterType="hr.kronos.backend.messages.persistence.PollRow">
+    INSERT INTO polls (
+      id,
+      room_id,
+      question,
+      allow_multiple,
+      created_by_user_id
+    ) VALUES (
+      #{id},
+      #{roomId},
+      #{question},
+      #{allowMultiple},
+      #{createdByUserId}
+    )
+  </insert>
+
+  <insert id="insertPollOption" parameterType="hr.kronos.backend.messages.persistence.PollOptionRow">
+    INSERT INTO poll_options (
+      id,
+      poll_id,
+      text,
+      sort_order
+    ) VALUES (
+      #{id},
+      #{pollId},
+      #{text},
+      #{sortOrder}
+    )
+  </insert>
+
+  <delete id="deletePollVotesForUser">
+    DELETE FROM poll_votes
+    WHERE poll_id = #{pollId}
+      AND user_id = #{userId}
+  </delete>
+
+  <insert id="insertPollVote">
+    INSERT INTO poll_votes (
+      poll_id,
+      option_id,
+      user_id
+    ) VALUES (
+      #{pollId},
+      #{optionId},
+      #{userId}
+    )
+    ON CONFLICT (poll_id, option_id, user_id) DO NOTHING
+  </insert>
 
   <update id="updateConversationSharePreview">
     UPDATE conversations

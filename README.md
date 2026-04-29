@@ -148,8 +148,19 @@ You can override with env vars:
 - `GET /api/users/me/liked-events`
 - `GET /api/feed?cursor=&limit=`
 - `GET /api/social/friends`
-- `GET /api/messages/conversations`
-- `POST /api/messages/conversations/{id}/share-event`
+- `GET /api/messages/chat-rooms?query=`
+- `POST /api/messages/chat-rooms`
+- `POST /api/messages/events/{eventId}/chat-room`
+- `GET /api/messages/chat-rooms/{id}`
+- `PATCH /api/messages/chat-rooms/{id}`
+- `GET /api/messages/chat-rooms/{id}/messages`
+- `POST /api/messages/chat-rooms/{id}/messages`
+- `POST /api/messages/chat-rooms/{id}/share-event`
+- `POST /api/messages/chat-rooms/{id}/polls`
+- `POST /api/messages/polls/{id}/vote`
+- `GET /api/messages/people?query=`
+- `GET /api/messages/conversations` legacy adapter
+- `POST /api/messages/conversations/{id}/share-event` legacy adapter
 - `POST /api/auth/register`
 - `POST /api/auth/login`
 - `POST /api/auth/google`
@@ -158,6 +169,8 @@ You can override with env vars:
 
 Napomena: `/api/events` i `/api/feed` vracaju samo evente gdje je `visibility = public`.
 Svi `/api/**` endpointi (osim javnih auth endpointa) traze `Authorization: Bearer <token>`.
+
+`GET /api/messages/chat-rooms` vraca samo sobe u kojima je trenutni korisnik clan kroz `chat_members`; legacy seed razgovori `c1/c2/c3` se brisu migracijom `V6__remove_legacy_mock_chats.sql`.
 
 ## Flyway note
 
