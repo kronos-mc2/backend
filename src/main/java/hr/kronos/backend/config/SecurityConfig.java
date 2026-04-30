@@ -36,6 +36,8 @@ public class SecurityConfig {
                     .requestMatchers(
                         "/api/auth/register", "/api/auth/login", "/api/auth/google", "/api/auth/apple")
                     .permitAll()
+                    .requestMatchers("/ws/**")
+                    .permitAll()
                     .requestMatchers("/api/auth/me")
                     .authenticated()
                     .requestMatchers("/api/**")

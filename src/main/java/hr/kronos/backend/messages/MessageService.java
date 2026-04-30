@@ -26,11 +26,14 @@ import hr.kronos.backend.messages.persistence.ConversationRow;
 import hr.kronos.backend.messages.persistence.MessageMapper;
 import hr.kronos.backend.messages.persistence.PollOptionRow;
 import hr.kronos.backend.messages.persistence.PollRow;
+import hr.kronos.backend.messages.realtime.ChatRealtimeEvent;
+import hr.kronos.backend.messages.realtime.ChatRealtimeService;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -46,11 +49,17 @@ public class MessageService {
   private final MessageMapper messageMapper;
   private final EventMapper eventMapper;
   private final AuthMapper authMapper;
+  private final ChatRealtimeService chatRealtimeService;
 
-  public MessageService(MessageMapper messageMapper, EventMapper eventMapper, AuthMapper authMapper) {
+  public MessageService(
+      MessageMapper messageMapper,
+      EventMapper eventMapper,
+      AuthMapper authMapper,
+      ChatRealtimeService chatRealtimeService) {
     this.messageMapper = messageMapper;
     this.eventMapper = eventMapper;
     this.authMapper = authMapper;
+    this.chatRealtimeService = chatRealtimeService;
   }
 
   public List<ConversationDto> getConversations() {
@@ -126,7 +135,9 @@ public class MessageService {
       messageMapper.insertRoom(room);
       messageMapper.insertMember(room.getId(), userId, "owner");
       messageMapper.insertMember(room.getId(), memberUserId, "member");
-      return getChatRoom(room.getId(), userId).room();
+      ChatRoomDto roomDto = getChatRoom(room.getId(), userId).room();
+      publishRoomUpdated(room.getId());
+      return roomDto;
     }
 
     String title = trimToNull(request.title());
@@ -142,7 +153,9 @@ public class MessageService {
         messageMapper.insertMember(room.getId(), memberUserId, "member");
       }
     }
-    return getChatRoom(room.getId(), userId).room();
+    ChatRoomDto roomDto = getChatRoom(room.getId(), userId).room();
+    publishRoomUpdated(room.getId());
+    return roomDto;
   }
 
   public ChatRoomDto getOrCreateEventChatRoom(String eventId, String userId) {
@@ -165,7 +178,9 @@ public class MessageService {
     if (event.getCreatorUserId() != null && !event.getCreatorUserId().equals(userId)) {
       messageMapper.insertMember(room.getId(), event.getCreatorUserId(), "owner");
     }
-    return getChatRoom(room.getId(), userId).room();
+    ChatRoomDto roomDto = getChatRoom(room.getId(), userId).room();
+    publishRoomUpdated(room.getId());
+    return roomDto;
   }
 
   public ChatRoomDto updateChatRoom(String roomId, Boolean adminOnly, String userId) {
@@ -174,7 +189,9 @@ public class MessageService {
     if (adminOnly != null) {
       messageMapper.updateRoomAdminOnly(roomId, adminOnly);
     }
-    return getChatRoom(roomId, userId).room();
+    ChatRoomDto roomDto = getChatRoom(roomId, userId).room();
+    publishRoomUpdated(roomId);
+    return roomDto;
   }
 
   public ChatMessageDto sendTextMessage(String roomId, String body, String userId) {
@@ -192,7 +209,9 @@ public class MessageService {
     ChatMessageRow message = newMessage(roomId, userId, "text", normalizedBody, null, null);
     messageMapper.insertMessage(message);
     messageMapper.touchRoom(roomId);
-    return toMessageDto(messageMapper.findMessageById(message.getId(), userId), userId);
+    ChatMessageDto messageDto = toMessageDto(messageMapper.findMessageById(message.getId(), userId), userId);
+    publishMessageCreated(roomId, messageDto.id());
+    return messageDto;
   }
 
   public ChatMessageDto shareEvent(String roomId, String eventId, String userId) {
@@ -211,7 +230,9 @@ public class MessageService {
     messageMapper.insertMessage(message);
     messageMapper.touchRoom(roomId);
     updateLegacyConversationPreview(roomId, event);
-    return toMessageDto(messageMapper.findMessageById(message.getId(), userId), userId);
+    ChatMessageDto messageDto = toMessageDto(messageMapper.findMessageById(message.getId(), userId), userId);
+    publishMessageCreated(roomId, messageDto.id());
+    return messageDto;
   }
 
   public ConversationDto shareEventToLegacyConversation(String conversationId, String eventId, String userId) {
@@ -253,7 +274,9 @@ public class MessageService {
     ChatMessageRow message = newMessage(roomId, userId, "poll", question, null, poll.getId());
     messageMapper.insertMessage(message);
     messageMapper.touchRoom(roomId);
-    return toMessageDto(messageMapper.findMessageById(message.getId(), userId), userId);
+    ChatMessageDto messageDto = toMessageDto(messageMapper.findMessageById(message.getId(), userId), userId);
+    publishMessageCreated(roomId, messageDto.id());
+    return messageDto;
   }
 
   public PollDto votePoll(String pollId, VotePollRequest request, String userId) {
@@ -281,7 +304,23 @@ public class MessageService {
       messageMapper.insertPollVote(pollId, optionId, userId);
     }
 
-    return toPollDto(poll, userId);
+    PollDto pollDto = toPollDto(poll, userId);
+    chatRealtimeService.publishToRoom(
+        poll.getRoomId(),
+        new ChatRealtimeEvent(ChatRealtimeService.POLL_UPDATED, poll.getRoomId(), Map.of("pollId", pollId)));
+    return pollDto;
+  }
+
+  private void publishMessageCreated(String roomId, String messageId) {
+    chatRealtimeService.publishToRoom(
+        roomId,
+        new ChatRealtimeEvent(ChatRealtimeService.MESSAGE_CREATED, roomId, Map.of("messageId", messageId)));
+  }
+
+  private void publishRoomUpdated(String roomId) {
+    chatRealtimeService.publishToRoom(
+        roomId,
+        new ChatRealtimeEvent(ChatRealtimeService.ROOM_UPDATED, roomId, Map.of("roomId", roomId)));
   }
 
   private ChatRoomRow requireRoom(String roomId, String userId) {

@@ -134,6 +134,7 @@ You can override with env vars:
 - `AUTH_JWT_EXPIRATION_SECONDS` (default je 2592000 sekundi = 30 dana; backend odbija vece vrijednosti)
 - `AUTH_GOOGLE_CLIENT_IDS` (comma-separated Google client IDs)
 - `AUTH_APPLE_CLIENT_ID` (Apple token audience; for native iOS login this should be your iOS bundle identifier)
+- `APP_WEBSOCKET_ALLOWED_ORIGINS` / property `app.websocket.allowed-origins` za WebSocket origin allowlistu; default je `*` za native/local razvoj
 
 ## API routes
 
@@ -171,6 +172,12 @@ Napomena: `/api/events` i `/api/feed` vracaju samo evente gdje je `visibility = 
 Svi `/api/**` endpointi (osim javnih auth endpointa) traze `Authorization: Bearer <token>`.
 
 `GET /api/messages/chat-rooms` vraca samo sobe u kojima je trenutni korisnik clan kroz `chat_members`; legacy seed razgovori `c1/c2/c3` se brisu migracijom `V6__remove_legacy_mock_chats.sql`.
+
+## WebSocket routes
+
+- `/ws/messages`
+
+Chat WebSocket koristi isti JWT kao REST. Native klijent salje `Authorization: Bearer <token>` u handshakeu, a backend podrzava i `access_token` query parametar kao fallback za platforme koje ne mogu poslati header. Slanje poruka ostaje REST; WebSocket emitira realtime evente `message.created`, `poll.updated` i `room.updated` clanovima sobe.
 
 ## Flyway note
 
