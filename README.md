@@ -159,7 +159,7 @@ You can override with env vars:
 - `POST /api/messages/chat-rooms/{id}/share-event`
 - `POST /api/messages/chat-rooms/{id}/polls`
 - `POST /api/messages/polls/{id}/vote`
-- `GET /api/messages/people?query=`
+- `GET /api/messages/people?query=` (returns results only when `query` has at least 2 characters)
 - `GET /api/messages/conversations` legacy adapter
 - `POST /api/messages/conversations/{id}/share-event` legacy adapter
 - `POST /api/auth/register`
@@ -172,6 +172,8 @@ Napomena: `/api/events` i `/api/feed` vracaju samo evente gdje je `visibility = 
 Svi `/api/**` endpointi (osim javnih auth endpointa) traze `Authorization: Bearer <token>`.
 
 `GET /api/messages/chat-rooms` vraca samo sobe u kojima je trenutni korisnik clan kroz `chat_members`; legacy seed razgovori `c1/c2/c3` se brisu migracijom `V6__remove_legacy_mock_chats.sql`.
+
+`GET /api/messages/people?query=` vraca praznu listu za prazan ili prekratak query, tako da novi chat ne ucitava cijeli popis korisnika prije stvarne pretrage.
 
 ## WebSocket routes
 

@@ -252,9 +252,7 @@
       email
     FROM app_users
     WHERE id &lt;&gt; #{userId}
-      <if test="query != null and query != ''">
-        AND (full_name ILIKE '%' || #{query} || '%' OR email ILIKE '%' || #{query} || '%')
-      </if>
+      AND (full_name ILIKE '%' || #{query} || '%' OR email ILIKE '%' || #{query} || '%')
     ORDER BY full_name ASC
     LIMIT 20
   </select>

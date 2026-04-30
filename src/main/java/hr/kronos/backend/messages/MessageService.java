@@ -44,6 +44,7 @@ import org.springframework.web.server.ResponseStatusException;
 public class MessageService {
   private static final int MAX_MESSAGE_LENGTH = 4000;
   private static final int MAX_POLL_OPTIONS = 8;
+  private static final int MIN_PEOPLE_SEARCH_LENGTH = 2;
   private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
 
   private final MessageMapper messageMapper;
@@ -100,7 +101,12 @@ public class MessageService {
   }
 
   public List<ChatPersonDto> searchPeople(String userId, String query) {
-    return messageMapper.searchPeople(userId, trimToNull(query)).stream().map(this::toPersonDto).toList();
+    String normalizedQuery = trimToNull(query);
+    if (normalizedQuery == null || normalizedQuery.length() < MIN_PEOPLE_SEARCH_LENGTH) {
+      return List.of();
+    }
+
+    return messageMapper.searchPeople(userId, normalizedQuery).stream().map(this::toPersonDto).toList();
   }
 
   public ChatRoomDto createChatRoom(CreateChatRoomRequest request, String userId) {
