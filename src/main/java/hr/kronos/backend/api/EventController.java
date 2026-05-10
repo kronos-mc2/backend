@@ -3,6 +3,7 @@ package hr.kronos.backend.api;
 import hr.kronos.backend.api.dto.AppEventDto;
 import hr.kronos.backend.api.dto.CreateEventRequest;
 import hr.kronos.backend.api.dto.FeedPageDto;
+import hr.kronos.backend.api.dto.OrganizerRatingRequest;
 import hr.kronos.backend.auth.AuthPrincipal;
 import hr.kronos.backend.events.EventService;
 import java.util.List;
@@ -96,5 +97,12 @@ public class EventController {
   public AppEventDto unlikeEvent(@PathVariable String id, Authentication authentication) {
     AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
     return eventService.unlikeEvent(id, principal.userId());
+  }
+
+  @PostMapping("/events/{id}/ratings")
+  public AppEventDto rateOrganizer(
+      @PathVariable String id, @RequestBody OrganizerRatingRequest request, Authentication authentication) {
+    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
+    return eventService.rateOrganizer(id, request, principal.userId());
   }
 }

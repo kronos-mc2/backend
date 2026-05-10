@@ -143,10 +143,14 @@ You can override with env vars:
 - `POST /api/events`
 - `POST /api/events/{id}/join`
 - `DELETE /api/events/{id}/join`
+- `POST /api/events/{id}/ratings`
 - `POST /api/events/{id}/like`
 - `DELETE /api/events/{id}/like`
 - `GET /api/users/me/events`
 - `GET /api/users/me/liked-events`
+- `PATCH /api/users/me/profile`
+- `GET /api/users/me/activity`
+- `GET /api/users/me/transactions`
 - `GET /api/feed?cursor=&limit=`
 - `GET /api/social/friends`
 - `GET /api/messages/chat-rooms?query=`

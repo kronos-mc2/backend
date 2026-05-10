@@ -189,6 +189,19 @@ public class MessageService {
     return roomDto;
   }
 
+  public void leaveEventChatRoom(String eventId, String userId) {
+    String roomId = messageMapper.findEventRoomId(eventId);
+    if (roomId == null) {
+      return;
+    }
+
+    messageMapper.deleteRoomRead(roomId, userId);
+    int deleted = messageMapper.deleteMember(roomId, userId);
+    if (deleted > 0) {
+      publishRoomUpdated(roomId);
+    }
+  }
+
   public ChatRoomDto updateChatRoom(String roomId, Boolean adminOnly, String userId) {
     ChatRoomRow room = requireRoom(roomId, userId);
     requireAdmin(room, userId);

@@ -8,6 +8,8 @@ public class UserRow {
   private String fullName;
   private String passwordHash;
   private String authProvider;
+  private String bio;
+  private String avatarUrl;
   private OffsetDateTime createdAt;
   private OffsetDateTime updatedAt;
 
@@ -49,6 +51,22 @@ public class UserRow {
 
   public void setAuthProvider(String authProvider) {
     this.authProvider = authProvider;
+  }
+
+  public String getBio() {
+    return bio;
+  }
+
+  public void setBio(String bio) {
+    this.bio = bio;
+  }
+
+  public String getAvatarUrl() {
+    return avatarUrl;
+  }
+
+  public void setAvatarUrl(String avatarUrl) {
+    this.avatarUrl = avatarUrl;
   }
 
   public OffsetDateTime getCreatedAt() {

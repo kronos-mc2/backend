@@ -12,4 +12,10 @@ public interface AuthMapper {
   int insert(UserRow user);
 
   int updateName(@Param("id") String id, @Param("fullName") String fullName);
+
+  int updateProfile(
+      @Param("id") String id,
+      @Param("fullName") String fullName,
+      @Param("bio") String bio,
+      @Param("avatarUrl") String avatarUrl);
 }

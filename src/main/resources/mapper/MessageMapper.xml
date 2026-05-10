@@ -184,6 +184,14 @@
     LIMIT 1
   </select>
 
+  <select id="findEventRoomId" resultType="string">
+    SELECT id
+    FROM chat_rooms
+    WHERE room_type = 'event'
+      AND event_id = #{eventId}
+    LIMIT 1
+  </select>
+
   <select id="findMessagesForRoom" resultType="hr.kronos.backend.messages.persistence.ChatMessageRow">
     SELECT
       m.id,
@@ -330,6 +338,18 @@
     )
     ON CONFLICT (room_id, user_id) DO UPDATE SET role = chat_members.role
   </insert>
+
+  <delete id="deleteRoomRead">
+    DELETE FROM message_reads
+    WHERE room_id = #{roomId}
+      AND user_id = #{userId}
+  </delete>
+
+  <delete id="deleteMember">
+    DELETE FROM chat_members
+    WHERE room_id = #{roomId}
+      AND user_id = #{userId}
+  </delete>
 
   <update id="updateRoomAdminOnly">
     UPDATE chat_rooms

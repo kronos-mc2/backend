@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+  PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+  "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="hr.kronos.backend.profile.persistence.ProfileMapper">
+
+  <select id="findTransactionsForUser" resultType="hr.kronos.backend.profile.persistence.TransactionRow">
+    SELECT
+      t.id,
+      t.event_id,
+      COALESCE(e.title_hr, t.description) AS event_title,
+      t.transaction_type,
+      t.amount,
+      t.currency,
+      t.status,
+      t.description,
+      t.created_at
+    FROM transactions t
+    LEFT JOIN events e ON e.id = t.event_id
+    WHERE t.user_id = #{userId}
+    ORDER BY t.created_at DESC, t.id DESC
+  </select>
+
+  <select id="findRatingCandidates" resultType="hr.kronos.backend.events.persistence.EventRow">
+    SELECT
+      e.id,
+      e.creator_user_id,
+      e.title_hr,
+      e.title_en,
+      e.where_hr,
+      e.where_en,
+      e.address,
+      e.about_hr,
+      e.about_en,
+      e.when_iso,
+      e.start_at,
+      e.end_at,
+      e.event_type,
+      e.latitude,
+      e.longitude,
+      e.entrance_latitude,
+      e.entrance_longitude,
+      e.entry_instructions_hr,
+      e.entry_instructions_en,
+      e.visibility,
+      e.attendance_mode,
+      e.price_amount,
+      e.price_currency,
+      e.capacity,
+      e.status,
+      e.organizer_rating_average,
+      e.organizer_rating_count,
+      (SELECT COUNT(*) FROM event_likes el_count WHERE el_count.event_id = e.id) AS like_count,
+      EXISTS (
+        SELECT 1
+        FROM event_likes el_me
+        WHERE el_me.event_id = e.id
+          AND el_me.user_id = #{userId}
+      ) AS liked_by_me,
+      e.participant_count,
+      ep.status AS user_participant_status
+    FROM events e
+    INNER JOIN event_participants ep
+      ON ep.event_id = e.id
+      AND ep.user_id = #{userId}
+      AND ep.status IN ('joined', 'approved')
+    WHERE e.creator_user_id IS NOT NULL
+      AND e.creator_user_id &lt;&gt; #{userId}
+      AND (e.status = 'finished' OR COALESCE(e.end_at, e.start_at, e.when_iso) &lt; NOW())
+      AND NOT EXISTS (
+        SELECT 1
+        FROM event_organizer_ratings rating
+        WHERE rating.event_id = e.id
+          AND rating.rater_user_id = #{userId}
+      )
+    ORDER BY COALESCE(e.end_at, e.start_at, e.when_iso) DESC, e.id DESC
+  </select>
+
+</mapper>

@@ -122,7 +122,7 @@ public class AuthService {
     if (user == null) {
       throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found.");
     }
-    return new AuthUserDto(user.getFullName(), user.getEmail());
+    return new AuthUserDto(user.getFullName(), user.getEmail(), user.getBio(), user.getAvatarUrl());
   }
 
   private AuthResponse loginOrCreateSocial(SocialIdentity identity, String provider, String fallbackName) {
@@ -165,7 +165,7 @@ public class AuthService {
 
   private AuthResponse buildAuthResponse(UserRow user) {
     String token = jwtService.createToken(user);
-    AuthUserDto userDto = new AuthUserDto(user.getFullName(), user.getEmail());
+    AuthUserDto userDto = new AuthUserDto(user.getFullName(), user.getEmail(), user.getBio(), user.getAvatarUrl());
     return new AuthResponse(token, userDto);
   }
 

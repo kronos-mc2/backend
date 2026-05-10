@@ -368,4 +368,42 @@
     WHERE id = #{eventId}
   </update>
 
+  <insert id="upsertOrganizerRating">
+    INSERT INTO event_organizer_ratings (
+      event_id,
+      organizer_user_id,
+      rater_user_id,
+      rating,
+      comment
+    ) VALUES (
+      #{eventId},
+      #{organizerUserId},
+      #{raterUserId},
+      #{rating},
+      #{comment}
+    )
+    ON CONFLICT (event_id, rater_user_id)
+    DO UPDATE SET
+      rating = EXCLUDED.rating,
+      comment = EXCLUDED.comment,
+      organizer_user_id = EXCLUDED.organizer_user_id,
+      created_at = NOW()
+  </insert>
+
+  <update id="refreshOrganizerRatingAggregate">
+    UPDATE events
+    SET organizer_rating_average = COALESCE((
+          SELECT ROUND(AVG(rating)::NUMERIC, 2)
+          FROM event_organizer_ratings
+          WHERE event_id = #{eventId}
+        ), 0),
+        organizer_rating_count = (
+          SELECT COUNT(*)::INTEGER
+          FROM event_organizer_ratings
+          WHERE event_id = #{eventId}
+        ),
+        updated_at = NOW()
+    WHERE id = #{eventId}
+  </update>
+
 </mapper>

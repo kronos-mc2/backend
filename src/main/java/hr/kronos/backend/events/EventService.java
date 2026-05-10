@@ -6,11 +6,13 @@ import hr.kronos.backend.api.dto.CreateEventRequest;
 import hr.kronos.backend.api.dto.EventMediaDto;
 import hr.kronos.backend.api.dto.FeedPageDto;
 import hr.kronos.backend.api.dto.LocalizedTextDto;
+import hr.kronos.backend.api.dto.OrganizerRatingRequest;
 import hr.kronos.backend.events.persistence.EventMapper;
 import hr.kronos.backend.events.persistence.EventMediaRow;
 import hr.kronos.backend.events.persistence.EventRow;
-import java.nio.charset.StandardCharsets;
+import hr.kronos.backend.messages.MessageService;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.Base64;
@@ -35,9 +37,11 @@ public class EventService {
   private static final int MAX_FEED_LIMIT = 10;
 
   private final EventMapper eventMapper;
+  private final MessageService messageService;
 
-  public EventService(EventMapper eventMapper) {
+  public EventService(EventMapper eventMapper, MessageService messageService) {
     this.eventMapper = eventMapper;
+    this.messageService = messageService;
   }
 
   public List<AppEventDto> getEvents(
@@ -127,9 +131,33 @@ public class EventService {
     if (shouldDecrement) {
       eventMapper.decrementParticipantCount(eventId);
     }
+    messageService.leaveEventChatRoom(eventId, userId);
 
     EventRow updated = eventMapper.findById(eventId, userId);
     return toDto(updated);
+  }
+
+  public AppEventDto rateOrganizer(String eventId, OrganizerRatingRequest request, String userId) {
+    if (request == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Request body is required.");
+    }
+    if (request.rating() == null || request.rating() < 1 || request.rating() > 5) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "rating must be between 1 and 5.");
+    }
+
+    EventRow row = getAccessibleEvent(eventId, userId);
+    if (!canRateOrganizer(row, userId)) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Organizer cannot be rated for this event.");
+    }
+
+    eventMapper.upsertOrganizerRating(
+        eventId,
+        row.getCreatorUserId(),
+        userId,
+        request.rating(),
+        trimToNull(request.comment()));
+    eventMapper.refreshOrganizerRatingAggregate(eventId);
+    return getEventById(eventId, userId);
   }
 
   public AppEventDto likeEvent(String eventId, String userId) {
@@ -197,7 +225,7 @@ public class EventService {
     return toDto(row);
   }
 
-  private AppEventDto toDto(EventRow row) {
+  public AppEventDto toDto(EventRow row) {
     return toDto(row, null);
   }
 
@@ -305,6 +333,24 @@ public class EventService {
 
   private boolean isJoinedByMe(String status) {
     return "joined".equals(status) || "approved".equals(status) || "waitlisted".equals(status);
+  }
+
+  private boolean canRateOrganizer(EventRow row, String userId) {
+    if (row.getCreatorUserId() == null || row.getCreatorUserId().equals(userId)) {
+      return false;
+    }
+    if (!"joined".equals(row.getUserParticipantStatus()) && !"approved".equals(row.getUserParticipantStatus())) {
+      return false;
+    }
+    if ("finished".equals(row.getStatus())) {
+      return true;
+    }
+
+    OffsetDateTime endAt = row.getEndAt() == null ? row.getStartAt() : row.getEndAt();
+    if (endAt == null) {
+      endAt = row.getWhenIso();
+    }
+    return endAt != null && endAt.isBefore(OffsetDateTime.now());
   }
 
   private int normalizeFeedLimit(Integer limit) {

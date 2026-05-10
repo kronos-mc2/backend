@@ -11,6 +11,8 @@
       full_name,
       password_hash,
       auth_provider,
+      bio,
+      avatar_url,
       created_at,
       updated_at
     FROM app_users
@@ -25,6 +27,8 @@
       full_name,
       password_hash,
       auth_provider,
+      bio,
+      avatar_url,
       created_at,
       updated_at
     FROM app_users
@@ -51,6 +55,15 @@
   <update id="updateName">
     UPDATE app_users
     SET full_name = #{fullName},
+        updated_at = NOW()
+    WHERE id = #{id}
+  </update>
+
+  <update id="updateProfile">
+    UPDATE app_users
+    SET full_name = #{fullName},
+        bio = #{bio},
+        avatar_url = #{avatarUrl},
         updated_at = NOW()
     WHERE id = #{id}
   </update>

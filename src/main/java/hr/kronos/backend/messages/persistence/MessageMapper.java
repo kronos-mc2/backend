@@ -21,6 +21,8 @@ public interface MessageMapper {
 
   ChatRoomRow findEventRoomForUser(@Param("eventId") String eventId, @Param("userId") String userId);
 
+  String findEventRoomId(@Param("eventId") String eventId);
+
   ChatRoomRow findDirectRoomForUsers(@Param("userId") String userId, @Param("memberUserId") String memberUserId);
 
   List<ChatMessageRow> findMessagesForRoom(@Param("roomId") String roomId, @Param("userId") String userId);
@@ -36,6 +38,10 @@ public interface MessageMapper {
   int insertRoom(ChatRoomRow room);
 
   int insertMember(@Param("roomId") String roomId, @Param("userId") String userId, @Param("role") String role);
+
+  int deleteMember(@Param("roomId") String roomId, @Param("userId") String userId);
+
+  int deleteRoomRead(@Param("roomId") String roomId, @Param("userId") String userId);
 
   int updateRoomAdminOnly(@Param("roomId") String roomId, @Param("adminOnly") boolean adminOnly);
 

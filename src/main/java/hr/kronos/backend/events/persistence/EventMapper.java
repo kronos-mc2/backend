@@ -51,4 +51,13 @@ public interface EventMapper {
   int incrementParticipantCount(@Param("eventId") String eventId);
 
   int decrementParticipantCount(@Param("eventId") String eventId);
+
+  int upsertOrganizerRating(
+      @Param("eventId") String eventId,
+      @Param("organizerUserId") String organizerUserId,
+      @Param("raterUserId") String raterUserId,
+      @Param("rating") int rating,
+      @Param("comment") String comment);
+
+  int refreshOrganizerRatingAggregate(@Param("eventId") String eventId);
 }
