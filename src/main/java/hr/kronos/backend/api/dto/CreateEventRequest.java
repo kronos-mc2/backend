@@ -4,11 +4,14 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.math.BigDecimal;
 
 public record CreateEventRequest(
+    String title,
     String titleHr,
     String titleEn,
+    String where,
     String whereHr,
     String whereEn,
     String address,
+    String about,
     String aboutHr,
     String aboutEn,
     @JsonProperty("whenISO") String whenISO,
@@ -16,6 +19,7 @@ public record CreateEventRequest(
     String endAt,
     CoordinatesDto coordinates,
     CoordinatesDto entranceCoordinates,
+    String entryInstructions,
     String entryInstructionsHr,
     String entryInstructionsEn,
     String visibility,

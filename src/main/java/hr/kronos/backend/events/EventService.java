@@ -196,17 +196,22 @@ public class EventService {
     String visibility = normalizeVisibility(request.visibility());
     String attendanceMode = normalizeAttendanceMode(request.attendanceMode());
     validateCommercialFields(attendanceMode, request.priceAmount(), request.priceCurrency(), request.capacity());
+    LocalizedInput title = localizedInput(request.title(), request.titleHr(), request.titleEn());
+    LocalizedInput where = localizedInput(request.where(), request.whereHr(), request.whereEn());
+    LocalizedInput about = localizedInput(request.about(), request.aboutHr(), request.aboutEn());
+    LocalizedInput entryInstructions =
+        optionalLocalizedInput(request.entryInstructions(), request.entryInstructionsHr(), request.entryInstructionsEn());
 
     EventRow row = new EventRow();
     row.setId("created-" + UUID.randomUUID().toString().replace("-", "").substring(0, 16));
     row.setCreatorUserId(creatorUserId);
-    row.setTitleHr(request.titleHr().trim());
-    row.setTitleEn(request.titleEn().trim());
-    row.setWhereHr(request.whereHr().trim());
-    row.setWhereEn(request.whereEn().trim());
-    row.setAddress(firstNonBlank(request.address(), request.whereHr()).trim());
-    row.setAboutHr(request.aboutHr().trim());
-    row.setAboutEn(request.aboutEn().trim());
+    row.setTitleHr(title.hr());
+    row.setTitleEn(title.en());
+    row.setWhereHr(where.hr());
+    row.setWhereEn(where.en());
+    row.setAddress(firstNonBlank(request.address(), where.hr()).trim());
+    row.setAboutHr(about.hr());
+    row.setAboutEn(about.en());
     row.setWhenIso(startAt);
     row.setStartAt(startAt);
     row.setEndAt(endAt);
@@ -228,8 +233,8 @@ public class EventService {
       row.setEntranceLongitude(request.entranceCoordinates().longitude());
     }
 
-    row.setEntryInstructionsHr(trimToNull(request.entryInstructionsHr()));
-    row.setEntryInstructionsEn(trimToNull(request.entryInstructionsEn()));
+    row.setEntryInstructionsHr(entryInstructions == null ? null : entryInstructions.hr());
+    row.setEntryInstructionsEn(entryInstructions == null ? null : entryInstructions.en());
 
     eventMapper.insert(row);
     syncTicketProduct(row);
@@ -433,12 +438,9 @@ public class EventService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Request body is required.");
     }
 
-    requireNonBlank(request.titleHr(), "titleHr");
-    requireNonBlank(request.titleEn(), "titleEn");
-    requireNonBlank(request.whereHr(), "whereHr");
-    requireNonBlank(request.whereEn(), "whereEn");
-    requireNonBlank(request.aboutHr(), "aboutHr");
-    requireNonBlank(request.aboutEn(), "aboutEn");
+    requireLocalizedInput(request.title(), request.titleHr(), request.titleEn(), "title");
+    requireLocalizedInput(request.where(), request.whereHr(), request.whereEn(), "where");
+    requireLocalizedInput(request.about(), request.aboutHr(), request.aboutEn(), "about");
     requireNonBlank(firstNonBlank(request.startAt(), request.whenISO()), "startAt");
 
     if (request.coordinates() == null) {
@@ -453,6 +455,16 @@ public class EventService {
 
   private void requireNonBlank(String value, String fieldName) {
     if (value == null || value.isBlank()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, fieldName + " is required.");
+    }
+  }
+
+  private void requireLocalizedInput(String canonical, String hr, String en, String fieldName) {
+    if (trimToNull(canonical) != null) {
+      return;
+    }
+
+    if (trimToNull(hr) == null || trimToNull(en) == null) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, fieldName + " is required.");
     }
   }
@@ -562,9 +574,38 @@ public class EventService {
     return trimmed.isEmpty() ? null : trimmed;
   }
 
+  private LocalizedInput localizedInput(String canonical, String hr, String en) {
+    String normalized = trimToNull(canonical);
+    if (normalized != null) {
+      return new LocalizedInput(normalized, normalized);
+    }
+
+    return new LocalizedInput(trimToNull(hr), trimToNull(en));
+  }
+
+  private LocalizedInput optionalLocalizedInput(String canonical, String hr, String en) {
+    String normalized = trimToNull(canonical);
+    if (normalized != null) {
+      return new LocalizedInput(normalized, normalized);
+    }
+
+    String normalizedHr = trimToNull(hr);
+    String normalizedEn = trimToNull(en);
+    if (normalizedHr == null && normalizedEn == null) {
+      return null;
+    }
+
+    String fallback = normalizedHr == null ? normalizedEn : normalizedHr;
+    return new LocalizedInput(
+        normalizedHr == null ? fallback : normalizedHr,
+        normalizedEn == null ? fallback : normalizedEn);
+  }
+
   private String timestamp(OffsetDateTime value) {
     return value == null ? null : value.toInstant().toString();
   }
 
   private record FeedCursor(OffsetDateTime startAt, String eventId) {}
+
+  private record LocalizedInput(String hr, String en) {}
 }
