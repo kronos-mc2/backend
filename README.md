@@ -134,6 +134,8 @@ You can override with env vars:
 - `AUTH_JWT_EXPIRATION_SECONDS` (default je 2592000 sekundi = 30 dana; backend odbija vece vrijednosti)
 - `AUTH_GOOGLE_CLIENT_IDS` (comma-separated Google client IDs)
 - `AUTH_APPLE_CLIENT_ID` (Apple token audience; for native iOS login this should be your iOS bundle identifier)
+- `PAYMENTS_STUB_ENABLED` (default `true`; Stripe-named provider radi kao lokalni stub bez vanjskog poziva)
+- `STRIPE_PUBLISHABLE_KEY` (publishable key koji frontend moze dobiti u checkout responseu kad se ukljuci realni Stripe flow)
 - `APP_WEBSOCKET_ALLOWED_ORIGINS` / property `app.websocket.allowed-origins` za WebSocket origin allowlistu; default je `*` za native/local razvoj
 
 ## API routes
@@ -141,6 +143,8 @@ You can override with env vars:
 - `GET /api/events`
 - `GET /api/events/{id}`
 - `POST /api/events`
+- `POST /api/events/{eventId}/ticket-checkout`
+- `POST /api/ticket-orders/{orderId}/confirm`
 - `POST /api/events/{id}/join`
 - `DELETE /api/events/{id}/join`
 - `POST /api/events/{id}/ratings`
@@ -178,6 +182,18 @@ Svi `/api/**` endpointi (osim javnih auth endpointa) traze `Authorization: Beare
 `GET /api/messages/chat-rooms` vraca samo sobe u kojima je trenutni korisnik clan kroz `chat_members`; legacy seed razgovori `c1/c2/c3` se brisu migracijom `V6__remove_legacy_mock_chats.sql`.
 
 `GET /api/messages/people?query=` vraca praznu listu za prazan ili prekratak query, tako da novi chat ne ucitava cijeli popis korisnika prije stvarne pretrage.
+
+## Payments
+
+Payment provider je definiran kao Stripe. Trenutni backend ima production-shaped stub: `PaymentProvider` i `StripePaymentProvider` kreiraju lokalni ticket checkout bez vanjskog Stripe poziva dok je `PAYMENTS_STUB_ENABLED=true`.
+
+Paid join flow:
+
+- `POST /api/events/{eventId}/ticket-checkout` provjerava da je event `paid`, kreira ili koristi `event_ticket_products`, zatim zapisuje `ticket_orders` i `payments`.
+- `POST /api/ticket-orders/{orderId}/confirm` potvrdjuje stub payment, oznacava order/payment kao succeeded, zapisuje `transactions` red i tek tada pridruzuje korisnika eventu.
+- Direktni `POST /api/events/{id}/join` za paid event vraca `402 Payment Required` ako korisnik nema uspjesan ticket order.
+
+Za realni Stripe flow treba zamijeniti stub u `StripePaymentProvider` stvarnim PaymentIntent pozivima, dodati server secret konfiguraciju i frontend `@stripe/stripe-react-native` PaymentSheet.
 
 ## WebSocket routes
 

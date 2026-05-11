@@ -7,11 +7,14 @@ public class TransactionRow {
   private String id;
   private String eventId;
   private String eventTitle;
+  private String orderId;
   private String transactionType;
   private BigDecimal amount;
   private String currency;
   private String status;
   private String description;
+  private String paymentProvider;
+  private String providerReference;
   private OffsetDateTime createdAt;
 
   public String getId() {
@@ -36,6 +39,14 @@ public class TransactionRow {
 
   public void setEventTitle(String eventTitle) {
     this.eventTitle = eventTitle;
+  }
+
+  public String getOrderId() {
+    return orderId;
+  }
+
+  public void setOrderId(String orderId) {
+    this.orderId = orderId;
   }
 
   public String getTransactionType() {
@@ -76,6 +87,22 @@ public class TransactionRow {
 
   public void setDescription(String description) {
     this.description = description;
+  }
+
+  public String getPaymentProvider() {
+    return paymentProvider;
+  }
+
+  public void setPaymentProvider(String paymentProvider) {
+    this.paymentProvider = paymentProvider;
+  }
+
+  public String getProviderReference() {
+    return providerReference;
+  }
+
+  public void setProviderReference(String providerReference) {
+    this.providerReference = providerReference;
   }
 
   public OffsetDateTime getCreatedAt() {

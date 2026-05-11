@@ -9,11 +9,14 @@
       t.id,
       t.event_id,
       COALESCE(e.title_hr, t.description) AS event_title,
+      t.order_id,
       t.transaction_type,
       t.amount,
       t.currency,
       t.status,
       t.description,
+      t.payment_provider,
+      t.provider_reference,
       t.created_at
     FROM transactions t
     LEFT JOIN events e ON e.id = t.event_id

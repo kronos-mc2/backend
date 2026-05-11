@@ -70,11 +70,14 @@ public class ProfileService {
         row.getId(),
         row.getEventId(),
         row.getEventTitle(),
+        row.getOrderId(),
         row.getTransactionType(),
         row.getAmount(),
         row.getCurrency(),
         row.getStatus(),
         row.getDescription(),
+        row.getPaymentProvider(),
+        row.getProviderReference(),
         row.getCreatedAt() == null ? null : DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(row.getCreatedAt()));
   }
 

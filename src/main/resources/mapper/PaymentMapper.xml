@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+  PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+  "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="hr.kronos.backend.payments.persistence.PaymentMapper">
+
+  <select id="findTicketProductByEventId" resultType="hr.kronos.backend.payments.persistence.TicketProductRow">
+    SELECT
+      id,
+      event_id,
+      name,
+      unit_amount,
+      currency,
+      active
+    FROM event_ticket_products
+    WHERE event_id = #{eventId}
+      AND active = TRUE
+    LIMIT 1
+  </select>
+
+  <insert id="upsertTicketProduct">
+    INSERT INTO event_ticket_products (
+      id,
+      event_id,
+      name,
+      unit_amount,
+      currency
+    ) VALUES (
+      #{id},
+      #{eventId},
+      #{name},
+      #{unitAmount},
+      #{currency}
+    )
+    ON CONFLICT (event_id)
+    DO UPDATE SET
+      name = EXCLUDED.name,
+      unit_amount = EXCLUDED.unit_amount,
+      currency = EXCLUDED.currency,
+      active = TRUE,
+      updated_at = NOW()
+  </insert>
+
+  <insert id="insertOrder" parameterType="hr.kronos.backend.payments.persistence.TicketOrderRow">
+    INSERT INTO ticket_orders (
+      id,
+      event_id,
+      user_id,
+      ticket_product_id,
+      provider,
+      provider_order_id,
+      provider_payment_id,
+      amount,
+      currency,
+      status,
+      checkout_url,
+      client_secret
+    ) VALUES (
+      #{id},
+      #{eventId},
+      #{userId},
+      #{ticketProductId},
+      #{provider},
+      #{providerOrderId},
+      #{providerPaymentId},
+      #{amount},
+      #{currency},
+      #{status},
+      #{checkoutUrl},
+      #{clientSecret}
+    )
+  </insert>
+
+  <select id="findOrderForUser" resultType="hr.kronos.backend.payments.persistence.TicketOrderRow">
+    SELECT
+      id,
+      event_id,
+      user_id,
+      ticket_product_id,
+      provider,
+      provider_order_id,
+      provider_payment_id,
+      amount,
+      currency,
+      status,
+      checkout_url,
+      client_secret,
+      created_at,
+      completed_at
+    FROM ticket_orders
+    WHERE id = #{orderId}
+      AND user_id = #{userId}
+    LIMIT 1
+  </select>
+
+  <select id="hasSucceededTicketOrder" resultType="boolean">
+    SELECT EXISTS (
+      SELECT 1
+      FROM ticket_orders
+      WHERE event_id = #{eventId}
+        AND user_id = #{userId}
+        AND status = 'succeeded'
+    )
+  </select>
+
+  <insert id="insertPayment">
+    INSERT INTO payments (
+      id,
+      order_id,
+      provider,
+      provider_payment_id,
+      amount,
+      currency,
+      status
+    ) VALUES (
+      #{id},
+      #{orderId},
+      #{provider},
+      #{providerPaymentId},
+      #{amount},
+      #{currency},
+      #{status}
+    )
+  </insert>
+
+  <update id="markPaymentSucceeded">
+    UPDATE payments
+    SET status = 'succeeded',
+        updated_at = NOW()
+    WHERE order_id = #{orderId}
+      AND provider_payment_id = #{providerPaymentId}
+  </update>
+
+  <update id="markOrderSucceeded">
+    UPDATE ticket_orders
+    SET status = 'succeeded',
+        completed_at = NOW(),
+        updated_at = NOW()
+    WHERE id = #{orderId}
+  </update>
+
+  <insert id="insertTicketTransaction">
+    INSERT INTO transactions (
+      id,
+      user_id,
+      event_id,
+      order_id,
+      transaction_type,
+      amount,
+      currency,
+      status,
+      description,
+      payment_provider,
+      provider_reference
+    ) VALUES (
+      #{id},
+      #{userId},
+      #{eventId},
+      #{orderId},
+      'ticket',
+      #{amount},
+      #{currency},
+      'paid',
+      #{description},
+      #{provider},
+      #{providerReference}
+    )
+  </insert>
+
+  <select id="findTransactionByOrderId" resultType="hr.kronos.backend.profile.persistence.TransactionRow">
+    SELECT
+      t.id,
+      t.event_id,
+      COALESCE(e.title_hr, t.description) AS event_title,
+      t.order_id,
+      t.transaction_type,
+      t.amount,
+      t.currency,
+      t.status,
+      t.description,
+      t.payment_provider,
+      t.provider_reference,
+      t.created_at
+    FROM transactions t
+    LEFT JOIN events e ON e.id = t.event_id
+    WHERE t.order_id = #{orderId}
+    LIMIT 1
+  </select>
+
+</mapper>

@@ -11,6 +11,7 @@ import hr.kronos.backend.events.persistence.EventMapper;
 import hr.kronos.backend.events.persistence.EventMediaRow;
 import hr.kronos.backend.events.persistence.EventRow;
 import hr.kronos.backend.messages.MessageService;
+import hr.kronos.backend.payments.persistence.PaymentMapper;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
@@ -38,10 +39,12 @@ public class EventService {
 
   private final EventMapper eventMapper;
   private final MessageService messageService;
+  private final PaymentMapper paymentMapper;
 
-  public EventService(EventMapper eventMapper, MessageService messageService) {
+  public EventService(EventMapper eventMapper, MessageService messageService, PaymentMapper paymentMapper) {
     this.eventMapper = eventMapper;
     this.messageService = messageService;
+    this.paymentMapper = paymentMapper;
   }
 
   public List<AppEventDto> getEvents(
@@ -106,7 +109,16 @@ public class EventService {
   }
 
   public AppEventDto joinEvent(String eventId, String userId) {
-    EventRow row = requireJoinableEvent(eventId, userId);
+    EventRow row = requireJoinableEvent(eventId, userId, true);
+    return joinEvent(row, eventId, userId);
+  }
+
+  public AppEventDto joinEventAfterPayment(String eventId, String userId) {
+    EventRow row = requireJoinableEvent(eventId, userId, false);
+    return joinEvent(row, eventId, userId);
+  }
+
+  private AppEventDto joinEvent(EventRow row, String eventId, String userId) {
     String currentStatus = row.getUserParticipantStatus();
     boolean shouldIncrement =
         currentStatus == null || "left".equals(currentStatus) || "rejected".equals(currentStatus);
@@ -220,6 +232,7 @@ public class EventService {
     row.setEntryInstructionsEn(trimToNull(request.entryInstructionsEn()));
 
     eventMapper.insert(row);
+    syncTicketProduct(row);
     eventMapper.upsertParticipant(row.getId(), creatorUserId, "joined");
     row.setUserParticipantStatus("joined");
     return toDto(row);
@@ -297,10 +310,16 @@ public class EventService {
     return mediaByEventId;
   }
 
-  private EventRow requireJoinableEvent(String eventId, String userId) {
+  private EventRow requireJoinableEvent(String eventId, String userId, boolean requirePaidReceipt) {
     EventRow row = getAccessibleEvent(eventId, userId);
     if (!canJoin(row)) {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "Event cannot be joined.");
+    }
+    if (requirePaidReceipt
+        && "paid".equals(row.getAttendanceMode())
+        && !isJoinedByMe(row.getUserParticipantStatus())
+        && !paymentMapper.hasSucceededTicketOrder(eventId, userId)) {
+      throw new ResponseStatusException(HttpStatus.PAYMENT_REQUIRED, "Paid event requires ticket checkout.");
     }
 
     return row;
@@ -501,6 +520,32 @@ public class EventService {
     if (normalizedCurrency == null || normalizedCurrency.length() != 3) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "priceCurrency must be a 3-letter code.");
     }
+  }
+
+  private void syncTicketProduct(EventRow row) {
+    if (!"paid".equals(row.getAttendanceMode())) {
+      return;
+    }
+
+    paymentMapper.upsertTicketProduct(
+        ticketProductId(row.getId()),
+        row.getId(),
+        trimProductName(row.getTitleHr()),
+        row.getPriceAmount(),
+        row.getPriceCurrency());
+  }
+
+  private String ticketProductId(String eventId) {
+    return "ticket-" + eventId.substring(0, Math.min(eventId.length(), 57));
+  }
+
+  private String trimProductName(String value) {
+    if (value == null || value.isBlank()) {
+      return "Event ticket";
+    }
+
+    String normalized = value.trim().replaceAll("\\s+", " ");
+    return normalized.length() > 180 ? normalized.substring(0, 180) : normalized;
   }
 
   private String firstNonBlank(String primary, String fallback) {
