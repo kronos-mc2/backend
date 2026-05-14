@@ -1,5 +1,6 @@
 package hr.kronos.backend.profile;
 
+import hr.kronos.backend.api.dto.AppNotificationDto;
 import hr.kronos.backend.api.dto.AppEventDto;
 import hr.kronos.backend.api.dto.ProfileActivityDto;
 import hr.kronos.backend.api.dto.TransactionDto;
@@ -9,6 +10,7 @@ import hr.kronos.backend.auth.persistence.AuthMapper;
 import hr.kronos.backend.auth.persistence.UserRow;
 import hr.kronos.backend.events.EventService;
 import hr.kronos.backend.profile.persistence.ProfileMapper;
+import hr.kronos.backend.profile.persistence.NotificationRow;
 import hr.kronos.backend.profile.persistence.TransactionRow;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -50,7 +52,12 @@ public class ProfileService {
     List<AppEventDto> joinedEvents = eventService.getMyEvents(userId, "joined");
     List<AppEventDto> likedEvents = eventService.getLikedEvents(userId);
     List<AppEventDto> ratingCandidates = profileMapper.findRatingCandidates(userId).stream().map(eventService::toDto).toList();
-    return new ProfileActivityDto(joinedEvents, likedEvents, ratingCandidates, getTransactions(userId));
+    return new ProfileActivityDto(
+        joinedEvents,
+        likedEvents,
+        ratingCandidates,
+        getTransactions(userId),
+        profileMapper.findNotificationsForUser(userId).stream().map(this::toDto).toList());
   }
 
   public List<TransactionDto> getTransactions(String userId) {
@@ -79,6 +86,17 @@ public class ProfileService {
         row.getPaymentProvider(),
         row.getProviderReference(),
         row.getCreatedAt() == null ? null : DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(row.getCreatedAt()));
+  }
+
+  private AppNotificationDto toDto(NotificationRow row) {
+    return new AppNotificationDto(
+        row.getId(),
+        row.getNotificationType(),
+        row.getTitle(),
+        row.getBody(),
+        row.getEventId(),
+        row.getCreatedAt() == null ? null : DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(row.getCreatedAt()),
+        row.getReadAt() == null ? null : DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(row.getReadAt()));
   }
 
   private String normalizeName(String name) {

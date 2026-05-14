@@ -30,6 +30,30 @@
       'Razgovor'
     ) AS display_title,
     CASE
+      WHEN cr.room_type = 'direct' THEN (
+        SELECT u.avatar_url
+        FROM chat_members cm_other
+        INNER JOIN app_users u ON u.id = cm_other.user_id
+        WHERE cm_other.room_id = cr.id
+          AND cm_other.user_id &lt;&gt; #{userId}
+        ORDER BY u.full_name ASC
+        LIMIT 1
+      )
+      ELSE NULL
+    END AS avatar_url,
+    CASE
+      WHEN cr.room_type = 'direct' THEN (
+        SELECT u.id
+        FROM chat_members cm_other
+        INNER JOIN app_users u ON u.id = cm_other.user_id
+        WHERE cm_other.room_id = cr.id
+          AND cm_other.user_id &lt;&gt; #{userId}
+        ORDER BY u.full_name ASC
+        LIMIT 1
+      )
+      ELSE NULL
+    END AS direct_user_id,
+    CASE
       WHEN cr.room_type = 'event' THEN 'Event grupa'
       WHEN cr.is_admin_only THEN 'Admin-only'
       WHEN cr.room_type = 'group' THEN 'Grupa'
@@ -198,6 +222,7 @@
       m.room_id,
       m.sender_user_id,
       u.full_name AS sender_name,
+      u.avatar_url AS sender_avatar_url,
       m.message_type,
       m.body,
       m.event_id,
@@ -215,6 +240,7 @@
       m.room_id,
       m.sender_user_id,
       u.full_name AS sender_name,
+      u.avatar_url AS sender_avatar_url,
       m.message_type,
       m.body,
       m.event_id,
@@ -231,6 +257,7 @@
       cm.room_id,
       cm.user_id,
       u.full_name,
+      u.avatar_url,
       cm.role
     FROM chat_members cm
     INNER JOIN app_users u ON u.id = cm.user_id
@@ -245,6 +272,7 @@
       cm.room_id,
       cm.user_id,
       u.full_name,
+      u.avatar_url,
       cm.role
     FROM chat_members cm
     INNER JOIN app_users u ON u.id = cm.user_id
@@ -257,7 +285,8 @@
     SELECT
       id,
       full_name,
-      email
+      email,
+      avatar_url
     FROM app_users
     WHERE id &lt;&gt; #{userId}
       AND (full_name ILIKE '%' || #{query} || '%' OR email ILIKE '%' || #{query} || '%')

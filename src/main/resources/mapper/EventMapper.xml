@@ -30,9 +30,17 @@
     e.price_currency,
     e.capacity,
     e.status,
+    e.event_rating_average,
+    e.event_rating_count,
     e.organizer_rating_average,
     e.organizer_rating_count,
-    e.participant_count
+    e.participant_count,
+    (
+      SELECT COUNT(*)::INTEGER
+      FROM event_participants ep_wait
+      WHERE ep_wait.event_id = e.id
+        AND ep_wait.status = 'waitlisted'
+    ) AS waitlist_count
   </sql>
 
   <sql id="likeColumns">
@@ -61,8 +69,17 @@
         FROM event_participants ep_access
         WHERE ep_access.event_id = e.id
           AND ep_access.user_id = #{userId}
-          AND ep_access.status IN ('joined', 'approved', 'waitlisted')
+          AND ep_access.status IN ('joined', 'approved', 'waitlisted', 'rejected')
       )
+    )
+  </sql>
+
+  <sql id="notBlockedPredicate">
+    NOT EXISTS (
+      SELECT 1
+      FROM event_blocks eb_access
+      WHERE eb_access.event_id = e.id
+        AND eb_access.user_id = #{userId}
     )
   </sql>
 
@@ -70,13 +87,22 @@
     SELECT
       <include refid="eventColumns" />,
       <include refid="likeColumns" />,
-      ep.status AS user_participant_status
+      CASE
+        WHEN EXISTS (
+          SELECT 1
+          FROM event_blocks eb_me
+          WHERE eb_me.event_id = e.id
+            AND eb_me.user_id = #{userId}
+        ) THEN 'blocked'
+        ELSE ep.status
+      END AS user_participant_status
     FROM events e
     LEFT JOIN event_participants ep
       ON ep.event_id = e.id
       AND ep.user_id = #{userId}
     WHERE e.visibility = 'public'
       AND e.status = 'published'
+      AND <include refid="notBlockedPredicate" />
       <if test="from != null">
         AND e.start_at &gt;= #{from}
       </if>
@@ -115,6 +141,7 @@
       AND ep.user_id = #{userId}
     WHERE e.visibility = 'public'
       AND e.status = 'published'
+      AND <include refid="notBlockedPredicate" />
       <if test="cursorStartAt != null and cursorId != null">
         AND (
           e.start_at &lt; #{cursorStartAt}
@@ -142,7 +169,15 @@
     SELECT
       <include refid="eventColumns" />,
       <include refid="likeColumns" />,
-      ep.status AS user_participant_status
+      CASE
+        WHEN EXISTS (
+          SELECT 1
+          FROM event_blocks eb_me
+          WHERE eb_me.event_id = e.id
+            AND eb_me.user_id = #{userId}
+        ) THEN 'blocked'
+        ELSE ep.status
+      END AS user_participant_status
     FROM events e
     LEFT JOIN event_participants ep
       ON ep.event_id = e.id
@@ -156,7 +191,15 @@
     SELECT
       <include refid="eventColumns" />,
       <include refid="likeColumns" />,
-      ep.status AS user_participant_status
+      CASE
+        WHEN EXISTS (
+          SELECT 1
+          FROM event_blocks eb_me
+          WHERE eb_me.event_id = e.id
+            AND eb_me.user_id = #{userId}
+        ) THEN 'blocked'
+        ELSE ep.status
+      END AS user_participant_status
     FROM events e
     LEFT JOIN event_participants ep
       ON ep.event_id = e.id
@@ -167,11 +210,23 @@
           e.creator_user_id = #{userId}
         </when>
         <when test="filter == 'joined'">
-          ep.status IN ('joined', 'approved', 'waitlisted')
+          ep.status IN ('joined', 'approved', 'waitlisted', 'rejected')
+          OR EXISTS (
+            SELECT 1
+            FROM event_blocks eb_user
+            WHERE eb_user.event_id = e.id
+              AND eb_user.user_id = #{userId}
+          )
         </when>
         <otherwise>
           e.creator_user_id = #{userId}
-          OR ep.status IN ('joined', 'approved', 'waitlisted')
+          OR ep.status IN ('joined', 'approved', 'waitlisted', 'rejected')
+          OR EXISTS (
+            SELECT 1
+            FROM event_blocks eb_user
+            WHERE eb_user.event_id = e.id
+              AND eb_user.user_id = #{userId}
+          )
         </otherwise>
       </choose>
     ORDER BY e.start_at ASC
@@ -181,7 +236,15 @@
     SELECT
       <include refid="eventColumns" />,
       <include refid="likeColumns" />,
-      ep.status AS user_participant_status
+      CASE
+        WHEN EXISTS (
+          SELECT 1
+          FROM event_blocks eb_me
+          WHERE eb_me.event_id = e.id
+            AND eb_me.user_id = #{userId}
+        ) THEN 'blocked'
+        ELSE ep.status
+      END AS user_participant_status
     FROM event_likes el
     INNER JOIN events e
       ON e.id = el.event_id
@@ -190,7 +253,24 @@
       AND ep.user_id = #{userId}
     WHERE el.user_id = #{userId}
       AND <include refid="accessibleEventPredicate" />
+      AND <include refid="notBlockedPredicate" />
     ORDER BY el.created_at DESC, e.start_at DESC, e.id DESC
+  </select>
+
+  <select id="findUpcomingCreatedByUser" resultType="hr.kronos.backend.events.persistence.EventRow">
+    SELECT
+      <include refid="eventColumns" />,
+      <include refid="likeColumns" />,
+      ep.status AS user_participant_status
+    FROM events e
+    LEFT JOIN event_participants ep
+      ON ep.event_id = e.id
+      AND ep.user_id = #{userId}
+    WHERE e.creator_user_id = #{targetUserId}
+      AND e.start_at &gt;= NOW()
+      AND <include refid="accessibleEventPredicate" />
+      AND <include refid="notBlockedPredicate" />
+    ORDER BY e.start_at ASC, e.id ASC
   </select>
 
   <select id="findMediaByEventId" resultType="hr.kronos.backend.events.persistence.EventMediaRow">
@@ -220,6 +300,38 @@
       #{eventId}
     </foreach>
     ORDER BY event_id ASC, sort_order ASC, created_at ASC
+  </select>
+
+  <select id="findParticipantsByEventId" resultType="hr.kronos.backend.events.persistence.EventParticipantRow">
+    SELECT
+      ep.event_id,
+      ep.user_id,
+      u.full_name,
+      u.avatar_url,
+      ep.status,
+      ep.joined_at,
+      ep.approved_at,
+      EXISTS (
+        SELECT 1
+        FROM event_blocks eb
+        WHERE eb.event_id = ep.event_id
+          AND eb.user_id = ep.user_id
+      ) AS blocked
+    FROM event_participants ep
+    INNER JOIN app_users u ON u.id = ep.user_id
+    WHERE ep.event_id = #{eventId}
+      AND ep.status IN ('joined', 'approved', 'waitlisted', 'rejected')
+    ORDER BY
+      CASE ep.status WHEN 'waitlisted' THEN 0 WHEN 'approved' THEN 1 WHEN 'joined' THEN 2 ELSE 3 END,
+      ep.joined_at ASC,
+      u.full_name ASC
+  </select>
+
+  <select id="countWaitlistedParticipants" resultType="int">
+    SELECT COUNT(*)::INTEGER
+    FROM event_participants
+    WHERE event_id = #{eventId}
+      AND status = 'waitlisted'
   </select>
 
   <select id="countPublicEvents" resultType="long">
@@ -260,6 +372,8 @@
       price_currency,
       capacity,
       status,
+      event_rating_average,
+      event_rating_count,
       organizer_rating_average,
       organizer_rating_count,
       participant_count
@@ -289,6 +403,8 @@
       #{priceCurrency},
       #{capacity},
       #{status},
+      #{eventRatingAverage},
+      #{eventRatingCount},
       #{organizerRatingAverage},
       #{organizerRatingCount},
       #{participantCount}
@@ -312,6 +428,45 @@
       #{sortOrder}
     )
   </insert>
+
+  <update id="update" parameterType="hr.kronos.backend.events.persistence.EventRow">
+    UPDATE events
+    SET title_hr = #{titleHr},
+        title_en = #{titleEn},
+        where_hr = #{whereHr},
+        where_en = #{whereEn},
+        address = #{address},
+        about_hr = #{aboutHr},
+        about_en = #{aboutEn},
+        when_iso = #{whenIso},
+        start_at = #{startAt},
+        end_at = #{endAt},
+        latitude = #{latitude},
+        longitude = #{longitude},
+        entrance_latitude = #{entranceLatitude},
+        entrance_longitude = #{entranceLongitude},
+        entry_instructions_hr = #{entryInstructionsHr},
+        entry_instructions_en = #{entryInstructionsEn},
+        visibility = #{visibility},
+        attendance_mode = #{attendanceMode},
+        price_amount = #{priceAmount},
+        price_currency = #{priceCurrency},
+        capacity = #{capacity},
+        status = #{status},
+        updated_at = NOW()
+    WHERE id = #{id}
+  </update>
+
+  <delete id="delete">
+    DELETE FROM events
+    WHERE id = #{eventId}
+  </delete>
+
+  <delete id="deleteMedia">
+    DELETE FROM event_media
+    WHERE event_id = #{eventId}
+      AND id = #{mediaId}
+  </delete>
 
   <insert id="insertLike">
     INSERT INTO event_likes (
@@ -342,7 +497,7 @@
       #{userId},
       #{status},
       NOW(),
-      CASE WHEN #{status} = 'joined' THEN NOW() ELSE NULL END
+      CASE WHEN #{status} IN ('joined', 'approved') THEN NOW() ELSE NULL END
     )
     ON CONFLICT (event_id, user_id)
     DO UPDATE SET
@@ -351,7 +506,10 @@
         WHEN event_participants.status = 'left' THEN NOW()
         ELSE event_participants.joined_at
       END,
-      approved_at = EXCLUDED.approved_at
+      approved_at = CASE
+        WHEN EXCLUDED.status IN ('joined', 'approved') THEN NOW()
+        ELSE NULL
+      END
   </insert>
 
   <update id="incrementParticipantCount">
@@ -367,6 +525,42 @@
         updated_at = NOW()
     WHERE id = #{eventId}
   </update>
+
+  <update id="updateParticipantStatus">
+    UPDATE event_participants
+    SET status = #{status},
+        approved_at = CASE WHEN #{status} IN ('joined', 'approved') THEN NOW() ELSE NULL END
+    WHERE event_id = #{eventId}
+      AND user_id = #{userId}
+  </update>
+
+  <select id="isUserBlocked" resultType="boolean">
+    SELECT EXISTS (
+      SELECT 1
+      FROM event_blocks
+      WHERE event_id = #{eventId}
+        AND user_id = #{userId}
+    )
+  </select>
+
+  <insert id="blockUser">
+    INSERT INTO event_blocks (
+      event_id,
+      user_id,
+      created_by_user_id
+    ) VALUES (
+      #{eventId},
+      #{userId},
+      #{createdByUserId}
+    )
+    ON CONFLICT (event_id, user_id) DO NOTHING
+  </insert>
+
+  <delete id="unblockUser">
+    DELETE FROM event_blocks
+    WHERE event_id = #{eventId}
+      AND user_id = #{userId}
+  </delete>
 
   <insert id="upsertOrganizerRating">
     INSERT INTO event_organizer_ratings (
@@ -404,6 +598,67 @@
         ),
         updated_at = NOW()
     WHERE id = #{eventId}
+  </update>
+
+  <insert id="upsertEventRating">
+    INSERT INTO event_ratings (
+      event_id,
+      rater_user_id,
+      rating,
+      comment
+    ) VALUES (
+      #{eventId},
+      #{raterUserId},
+      #{rating},
+      #{comment}
+    )
+    ON CONFLICT (event_id, rater_user_id)
+    DO UPDATE SET
+      rating = EXCLUDED.rating,
+      comment = EXCLUDED.comment,
+      created_at = NOW()
+  </insert>
+
+  <update id="refreshEventRatingAggregate">
+    UPDATE events
+    SET event_rating_average = COALESCE((
+          SELECT ROUND(AVG(rating)::NUMERIC, 2)
+          FROM event_ratings
+          WHERE event_id = #{eventId}
+        ), 0),
+        event_rating_count = (
+          SELECT COUNT(*)::INTEGER
+          FROM event_ratings
+          WHERE event_id = #{eventId}
+        ),
+        updated_at = NOW()
+    WHERE id = #{eventId}
+  </update>
+
+  <insert id="insertNotification">
+    INSERT INTO app_notifications (
+      id,
+      user_id,
+      notification_type,
+      title,
+      body,
+      event_id
+    ) VALUES (
+      #{id},
+      #{userId},
+      #{notificationType},
+      #{title},
+      #{body},
+      #{eventId}
+    )
+  </insert>
+
+  <update id="markPastEventsFinished">
+    UPDATE events
+    SET status = 'finished',
+        updated_at = NOW()
+    WHERE status = 'published'
+      AND COALESCE(end_at, start_at, when_iso) &lt; NOW() - INTERVAL '1 day'
   </update>
 
 </mapper>

@@ -6,4 +6,5 @@ public record ProfileActivityDto(
     List<AppEventDto> joinedEvents,
     List<AppEventDto> likedEvents,
     List<AppEventDto> ratingCandidates,
-    List<TransactionDto> transactions) {}
+    List<TransactionDto> transactions,
+    List<AppNotificationDto> notifications) {}

@@ -7,6 +7,7 @@ public class ChatMessageRow {
   private String roomId;
   private String senderUserId;
   private String senderName;
+  private String senderAvatarUrl;
   private String messageType;
   private String body;
   private String eventId;
@@ -43,6 +44,14 @@ public class ChatMessageRow {
 
   public void setSenderName(String senderName) {
     this.senderName = senderName;
+  }
+
+  public String getSenderAvatarUrl() {
+    return senderAvatarUrl;
+  }
+
+  public void setSenderAvatarUrl(String senderAvatarUrl) {
+    this.senderAvatarUrl = senderAvatarUrl;
   }
 
   public String getMessageType() {

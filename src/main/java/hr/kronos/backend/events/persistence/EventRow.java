@@ -29,11 +29,14 @@ public class EventRow {
   private String priceCurrency;
   private Integer capacity;
   private String status;
+  private BigDecimal eventRatingAverage;
+  private int eventRatingCount;
   private BigDecimal organizerRatingAverage;
   private int organizerRatingCount;
   private int likeCount;
   private Boolean likedByMe;
   private int participantCount;
+  private int waitlistCount;
   private String userParticipantStatus;
 
   public String getId() {
@@ -236,6 +239,22 @@ public class EventRow {
     this.status = status;
   }
 
+  public BigDecimal getEventRatingAverage() {
+    return eventRatingAverage;
+  }
+
+  public void setEventRatingAverage(BigDecimal eventRatingAverage) {
+    this.eventRatingAverage = eventRatingAverage;
+  }
+
+  public int getEventRatingCount() {
+    return eventRatingCount;
+  }
+
+  public void setEventRatingCount(int eventRatingCount) {
+    this.eventRatingCount = eventRatingCount;
+  }
+
   public BigDecimal getOrganizerRatingAverage() {
     return organizerRatingAverage;
   }
@@ -274,6 +293,14 @@ public class EventRow {
 
   public void setParticipantCount(int participantCount) {
     this.participantCount = participantCount;
+  }
+
+  public int getWaitlistCount() {
+    return waitlistCount;
+  }
+
+  public void setWaitlistCount(int waitlistCount) {
+    this.waitlistCount = waitlistCount;
   }
 
   public String getUserParticipantStatus() {

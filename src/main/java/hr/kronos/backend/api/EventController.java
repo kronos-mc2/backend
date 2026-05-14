@@ -2,8 +2,12 @@ package hr.kronos.backend.api;
 
 import hr.kronos.backend.api.dto.AppEventDto;
 import hr.kronos.backend.api.dto.CreateEventRequest;
+import hr.kronos.backend.api.dto.EventMediaRequest;
+import hr.kronos.backend.api.dto.EventParticipantDto;
+import hr.kronos.backend.api.dto.EventRatingRequest;
 import hr.kronos.backend.api.dto.FeedPageDto;
 import hr.kronos.backend.api.dto.OrganizerRatingRequest;
+import hr.kronos.backend.api.dto.UpdateEventRequest;
 import hr.kronos.backend.auth.AuthPrincipal;
 import hr.kronos.backend.events.EventService;
 import java.util.List;
@@ -13,6 +17,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -68,11 +73,72 @@ public class EventController {
     return eventService.getLikedEvents(principal.userId());
   }
 
+  @GetMapping("/users/{userId}/events/upcoming")
+  public List<AppEventDto> getUserUpcomingEvents(@PathVariable String userId, Authentication authentication) {
+    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
+    return eventService.getUpcomingCreatedByUser(userId, principal.userId());
+  }
+
   @PostMapping("/events")
   @ResponseStatus(HttpStatus.CREATED)
   public AppEventDto createEvent(@RequestBody CreateEventRequest request, Authentication authentication) {
     AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
     return eventService.createEvent(request, principal.userId());
+  }
+
+  @PatchMapping("/events/{id}")
+  public AppEventDto updateEvent(
+      @PathVariable String id, @RequestBody UpdateEventRequest request, Authentication authentication) {
+    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
+    return eventService.updateEvent(id, request, principal.userId());
+  }
+
+  @DeleteMapping("/events/{id}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  public void deleteEvent(@PathVariable String id, Authentication authentication) {
+    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
+    eventService.deleteEvent(id, principal.userId());
+  }
+
+  @GetMapping("/events/{id}/participants")
+  public List<EventParticipantDto> getEventParticipants(@PathVariable String id, Authentication authentication) {
+    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
+    return eventService.getParticipants(id, principal.userId());
+  }
+
+  @PostMapping("/events/{id}/media")
+  public AppEventDto addEventMedia(
+      @PathVariable String id, @RequestBody EventMediaRequest request, Authentication authentication) {
+    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
+    return eventService.addMedia(id, request, principal.userId());
+  }
+
+  @DeleteMapping("/events/{id}/media/{mediaId}")
+  public AppEventDto deleteEventMedia(
+      @PathVariable String id, @PathVariable String mediaId, Authentication authentication) {
+    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
+    return eventService.deleteMedia(id, mediaId, principal.userId());
+  }
+
+  @PostMapping("/events/{id}/participants/{userId}/approve")
+  public List<EventParticipantDto> approveEventParticipant(
+      @PathVariable String id, @PathVariable String userId, Authentication authentication) {
+    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
+    return eventService.approveParticipant(id, userId, principal.userId());
+  }
+
+  @DeleteMapping("/events/{id}/participants/{userId}")
+  public List<EventParticipantDto> removeEventParticipant(
+      @PathVariable String id, @PathVariable String userId, Authentication authentication) {
+    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
+    return eventService.removeParticipant(id, userId, principal.userId());
+  }
+
+  @PostMapping("/events/{id}/participants/{userId}/block")
+  public List<EventParticipantDto> blockEventParticipant(
+      @PathVariable String id, @PathVariable String userId, Authentication authentication) {
+    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
+    return eventService.blockParticipant(id, userId, principal.userId());
   }
 
   @PostMapping("/events/{id}/join")
@@ -104,5 +170,12 @@ public class EventController {
       @PathVariable String id, @RequestBody OrganizerRatingRequest request, Authentication authentication) {
     AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
     return eventService.rateOrganizer(id, request, principal.userId());
+  }
+
+  @PostMapping("/events/{id}/ratings/full")
+  public AppEventDto rateEvent(
+      @PathVariable String id, @RequestBody EventRatingRequest request, Authentication authentication) {
+    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
+    return eventService.rateEvent(id, request, principal.userId());
   }
 }

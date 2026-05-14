@@ -10,4 +10,6 @@ public interface ProfileMapper {
   List<TransactionRow> findTransactionsForUser(@Param("userId") String userId);
 
   List<EventRow> findRatingCandidates(@Param("userId") String userId);
+
+  List<NotificationRow> findNotificationsForUser(@Param("userId") String userId);
 }

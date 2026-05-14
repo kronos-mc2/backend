@@ -136,22 +136,35 @@ You can override with env vars:
 - `AUTH_APPLE_CLIENT_ID` (Apple token audience; for native iOS login this should be your iOS bundle identifier)
 - `PAYMENTS_STUB_ENABLED` (default `true`; Stripe-named provider radi kao lokalni stub bez vanjskog poziva)
 - `STRIPE_PUBLISHABLE_KEY` (publishable key koji frontend moze dobiti u checkout responseu kad se ukljuci realni Stripe flow)
+- `LOCATION_SEARCH_NOMINATIM_BASE_URL` (default `https://nominatim.openstreetmap.org`)
+- `LOCATION_SEARCH_USER_AGENT` (default `GdjeIKadaBackend/1.0`; promijeni za produkcijski deployment)
 - `APP_WEBSOCKET_ALLOWED_ORIGINS` / property `app.websocket.allowed-origins` za WebSocket origin allowlistu; default je `*` za native/local razvoj
 
 ## API routes
 
 - `GET /api/events`
+- `GET /api/locations/search?query=&locale=&limit=&lat=&lng=`
 - `GET /api/events/{id}`
 - `POST /api/events`
+- `PATCH /api/events/{id}`
+- `DELETE /api/events/{id}`
+- `GET /api/events/{id}/participants`
+- `POST /api/events/{id}/participants/{userId}/approve`
+- `DELETE /api/events/{id}/participants/{userId}`
+- `POST /api/events/{id}/participants/{userId}/block`
+- `POST /api/events/{id}/media`
+- `DELETE /api/events/{id}/media/{mediaId}`
 - `POST /api/events/{eventId}/ticket-checkout`
 - `POST /api/ticket-orders/{orderId}/confirm`
 - `POST /api/events/{id}/join`
 - `DELETE /api/events/{id}/join`
 - `POST /api/events/{id}/ratings`
+- `POST /api/events/{id}/ratings/full`
 - `POST /api/events/{id}/like`
 - `DELETE /api/events/{id}/like`
 - `GET /api/users/me/events`
 - `GET /api/users/me/liked-events`
+- `GET /api/users/{userId}/events/upcoming`
 - `PATCH /api/users/me/profile`
 - `GET /api/users/me/activity`
 - `GET /api/users/me/transactions`
@@ -179,8 +192,12 @@ You can override with env vars:
 Napomena: `/api/events` i `/api/feed` vracaju samo evente gdje je `visibility = public`.
 Svi `/api/**` endpointi (osim javnih auth endpointa) traze `Authorization: Bearer <token>`.
 `POST /api/events` prihvaca canonical single-language polja `title`, `where`, `about` i opcionalni `entryInstructions`; backend ih sprema u postojece HR/EN stupce. Stara `titleHr/titleEn`, `whereHr/whereEn`, `aboutHr/aboutEn` i `entryInstructionsHr/entryInstructionsEn` polja ostaju podrzana radi kompatibilnosti.
+Owner-only event management endpointi dopustaju creatoru update/delete eventa, media URL management, pregled/prihvacanje waitliste, micanje sudionika i blokiranje korisnika s neplacenog eventa. Owner remove sprema participant status `rejected`, block dodatno sprema `event_blocks`, a backend zapisuje in-app `app_notifications` za approve/remove/block. Blokirani korisnici vise ne vide event kroz map/feed/list discovery i ne mogu ga ponovno joinati; profil/kalendar mogu prikazati status `blocked`.
+`POST /api/events/{id}/ratings/full` sprema odvojenu ocjenu/komentar za event u `event_ratings` i ocjenu/komentar za organizatora u `event_organizer_ratings`. Backend scheduler oznacava `published` evente kao `finished` jedan dan nakon `end_at/start_at/when_iso`.
+`GET /api/locations/search` proxyja Nominatim/OpenStreetMap location autocomplete s limitom, localeom, opcionalnom proximity koordinatom i kratkim in-memory cacheom; koristi se u frontend create event address flowu.
 
 `GET /api/messages/chat-rooms` vraca samo sobe u kojima je trenutni korisnik clan kroz `chat_members`; legacy seed razgovori `c1/c2/c3` se brisu migracijom `V6__remove_legacy_mock_chats.sql`.
+Chat room/member/message DTO-ovi vracaju `avatarUrl` iz `app_users.avatar_url`; direct roomovi dodatno vracaju `directUserId` za dohvat buducih eventova sugovornika. Direct chatovi ignoriraju `adminOnly` i oba korisnika mogu pisati.
 
 `GET /api/messages/people?query=` vraca praznu listu za prazan ili prekratak query, tako da novi chat ne ucitava cijeli popis korisnika prije stvarne pretrage.
 

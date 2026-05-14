@@ -6,6 +6,8 @@ public record ChatRoomDto(
     String id,
     String type,
     String title,
+    String avatarUrl,
+    String directUserId,
     String subtitle,
     String lastMessage,
     String lastMessageAt,

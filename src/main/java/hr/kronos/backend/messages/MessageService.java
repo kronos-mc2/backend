@@ -205,7 +205,7 @@ public class MessageService {
   public ChatRoomDto updateChatRoom(String roomId, Boolean adminOnly, String userId) {
     ChatRoomRow room = requireRoom(roomId, userId);
     requireAdmin(room, userId);
-    if (adminOnly != null) {
+    if (adminOnly != null && !"direct".equals(room.getRoomType())) {
       messageMapper.updateRoomAdminOnly(roomId, adminOnly);
     }
     ChatRoomDto roomDto = getChatRoom(roomId, userId).room();
@@ -351,6 +351,9 @@ public class MessageService {
   }
 
   private void requireCanWrite(ChatRoomRow room, String userId) {
+    if ("direct".equals(room.getRoomType())) {
+      return;
+    }
     if (!Boolean.TRUE.equals(room.getAdminOnly())) {
       return;
     }
@@ -375,6 +378,8 @@ public class MessageService {
         row.getId(),
         row.getRoomType(),
         firstNonBlank(row.getDisplayTitle(), row.getTitle(), "Razgovor"),
+        row.getAvatarUrl(),
+        row.getDirectUserId(),
         row.getSubtitle(),
         row.getLastMessage(),
         timestamp(row.getLastMessageAt()),
@@ -395,6 +400,7 @@ public class MessageService {
         row.getBody(),
         row.getSenderUserId(),
         row.getSenderName(),
+        row.getSenderAvatarUrl(),
         timestamp(row.getCreatedAt()),
         row.getCreatedAt() == null ? null : TIME_FORMATTER.format(row.getCreatedAt()),
         row.getSenderUserId() != null && row.getSenderUserId().equals(userId),
@@ -448,11 +454,11 @@ public class MessageService {
   }
 
   private ChatMemberDto toMemberDto(ChatMemberRow row) {
-    return new ChatMemberDto(row.getUserId(), row.getFullName(), row.getRole());
+    return new ChatMemberDto(row.getUserId(), row.getFullName(), row.getAvatarUrl(), row.getRole());
   }
 
   private ChatPersonDto toPersonDto(ChatPersonRow row) {
-    return new ChatPersonDto(row.getId(), row.getFullName(), row.getEmail());
+    return new ChatPersonDto(row.getId(), row.getFullName(), row.getEmail(), row.getAvatarUrl());
   }
 
   private ConversationDto toDto(ConversationRow row) {

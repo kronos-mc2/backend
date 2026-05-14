@@ -30,9 +30,15 @@ public interface EventMapper {
 
   List<EventRow> findLikedByUser(@Param("userId") String userId);
 
+  List<EventRow> findUpcomingCreatedByUser(@Param("targetUserId") String targetUserId, @Param("userId") String userId);
+
   List<EventMediaRow> findMediaByEventId(@Param("eventId") String eventId);
 
   List<EventMediaRow> findMediaByEventIds(@Param("eventIds") List<String> eventIds);
+
+  List<EventParticipantRow> findParticipantsByEventId(@Param("eventId") String eventId);
+
+  int countWaitlistedParticipants(@Param("eventId") String eventId);
 
   long countAllEvents();
 
@@ -41,6 +47,12 @@ public interface EventMapper {
   int insert(EventRow event);
 
   int insertMedia(EventMediaRow media);
+
+  int update(EventRow event);
+
+  int delete(@Param("eventId") String eventId);
+
+  int deleteMedia(@Param("eventId") String eventId, @Param("mediaId") String mediaId);
 
   int insertLike(@Param("eventId") String eventId, @Param("userId") String userId);
 
@@ -52,6 +64,14 @@ public interface EventMapper {
 
   int decrementParticipantCount(@Param("eventId") String eventId);
 
+  int updateParticipantStatus(@Param("eventId") String eventId, @Param("userId") String userId, @Param("status") String status);
+
+  boolean isUserBlocked(@Param("eventId") String eventId, @Param("userId") String userId);
+
+  int blockUser(@Param("eventId") String eventId, @Param("userId") String userId, @Param("createdByUserId") String createdByUserId);
+
+  int unblockUser(@Param("eventId") String eventId, @Param("userId") String userId);
+
   int upsertOrganizerRating(
       @Param("eventId") String eventId,
       @Param("organizerUserId") String organizerUserId,
@@ -60,4 +80,22 @@ public interface EventMapper {
       @Param("comment") String comment);
 
   int refreshOrganizerRatingAggregate(@Param("eventId") String eventId);
+
+  int upsertEventRating(
+      @Param("eventId") String eventId,
+      @Param("raterUserId") String raterUserId,
+      @Param("rating") int rating,
+      @Param("comment") String comment);
+
+  int refreshEventRatingAggregate(@Param("eventId") String eventId);
+
+  int insertNotification(
+      @Param("id") String id,
+      @Param("userId") String userId,
+      @Param("notificationType") String notificationType,
+      @Param("title") String title,
+      @Param("body") String body,
+      @Param("eventId") String eventId);
+
+  int markPastEventsFinished();
 }

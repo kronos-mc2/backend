@@ -51,6 +51,8 @@
       e.price_currency,
       e.capacity,
       e.status,
+      e.event_rating_average,
+      e.event_rating_count,
       e.organizer_rating_average,
       e.organizer_rating_count,
       (SELECT COUNT(*) FROM event_likes el_count WHERE el_count.event_id = e.id) AS like_count,
@@ -61,6 +63,12 @@
           AND el_me.user_id = #{userId}
       ) AS liked_by_me,
       e.participant_count,
+      (
+        SELECT COUNT(*)::INTEGER
+        FROM event_participants ep_wait
+        WHERE ep_wait.event_id = e.id
+          AND ep_wait.status = 'waitlisted'
+      ) AS waitlist_count,
       ep.status AS user_participant_status
     FROM events e
     INNER JOIN event_participants ep
@@ -76,7 +84,28 @@
         WHERE rating.event_id = e.id
           AND rating.rater_user_id = #{userId}
       )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM event_ratings event_rating
+        WHERE event_rating.event_id = e.id
+          AND event_rating.rater_user_id = #{userId}
+      )
     ORDER BY COALESCE(e.end_at, e.start_at, e.when_iso) DESC, e.id DESC
+  </select>
+
+  <select id="findNotificationsForUser" resultType="hr.kronos.backend.profile.persistence.NotificationRow">
+    SELECT
+      id,
+      notification_type,
+      title,
+      body,
+      event_id,
+      created_at,
+      read_at
+    FROM app_notifications
+    WHERE user_id = #{userId}
+    ORDER BY created_at DESC, id DESC
+    LIMIT 20
   </select>
 
 </mapper>

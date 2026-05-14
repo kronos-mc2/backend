@@ -7,6 +7,7 @@ public record ChatMessageDto(
     String body,
     String senderUserId,
     String senderName,
+    String senderAvatarUrl,
     String createdAt,
     String timeLabel,
     boolean mine,

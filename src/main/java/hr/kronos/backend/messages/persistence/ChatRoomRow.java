@@ -12,6 +12,8 @@ public class ChatRoomRow {
   private OffsetDateTime createdAt;
   private OffsetDateTime updatedAt;
   private String displayTitle;
+  private String avatarUrl;
+  private String directUserId;
   private String subtitle;
   private String lastMessage;
   private OffsetDateTime lastMessageAt;
@@ -90,6 +92,22 @@ public class ChatRoomRow {
 
   public void setDisplayTitle(String displayTitle) {
     this.displayTitle = displayTitle;
+  }
+
+  public String getAvatarUrl() {
+    return avatarUrl;
+  }
+
+  public void setAvatarUrl(String avatarUrl) {
+    this.avatarUrl = avatarUrl;
+  }
+
+  public String getDirectUserId() {
+    return directUserId;
+  }
+
+  public void setDirectUserId(String directUserId) {
+    this.directUserId = directUserId;
   }
 
   public String getSubtitle() {

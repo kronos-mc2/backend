@@ -4,6 +4,7 @@ public class ChatMemberRow {
   private String roomId;
   private String userId;
   private String fullName;
+  private String avatarUrl;
   private String role;
 
   public String getRoomId() {
@@ -28,6 +29,14 @@ public class ChatMemberRow {
 
   public void setFullName(String fullName) {
     this.fullName = fullName;
+  }
+
+  public String getAvatarUrl() {
+    return avatarUrl;
+  }
+
+  public void setAvatarUrl(String avatarUrl) {
+    this.avatarUrl = avatarUrl;
   }
 
   public String getRole() {

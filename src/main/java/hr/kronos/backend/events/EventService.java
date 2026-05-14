@@ -3,12 +3,17 @@ package hr.kronos.backend.events;
 import hr.kronos.backend.api.dto.AppEventDto;
 import hr.kronos.backend.api.dto.CoordinatesDto;
 import hr.kronos.backend.api.dto.CreateEventRequest;
+import hr.kronos.backend.api.dto.EventMediaRequest;
 import hr.kronos.backend.api.dto.EventMediaDto;
+import hr.kronos.backend.api.dto.EventParticipantDto;
+import hr.kronos.backend.api.dto.EventRatingRequest;
 import hr.kronos.backend.api.dto.FeedPageDto;
 import hr.kronos.backend.api.dto.LocalizedTextDto;
 import hr.kronos.backend.api.dto.OrganizerRatingRequest;
+import hr.kronos.backend.api.dto.UpdateEventRequest;
 import hr.kronos.backend.events.persistence.EventMapper;
 import hr.kronos.backend.events.persistence.EventMediaRow;
+import hr.kronos.backend.events.persistence.EventParticipantRow;
 import hr.kronos.backend.events.persistence.EventRow;
 import hr.kronos.backend.messages.MessageService;
 import hr.kronos.backend.payments.persistence.PaymentMapper;
@@ -22,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -55,6 +61,7 @@ public class EventService {
       Double radiusKm,
       String query,
       String userId) {
+    markPastEventsFinished();
     OffsetDateTime fromDate = parseOptionalWhenIso(from, "from");
     OffsetDateTime toDate = parseOptionalWhenIso(to, "to");
 
@@ -79,6 +86,7 @@ public class EventService {
   }
 
   public FeedPageDto getFeed(String userId, String cursor, Integer limit) {
+    markPastEventsFinished();
     FeedCursor parsedCursor = parseFeedCursor(cursor);
     int normalizedLimit = normalizeFeedLimit(limit);
     List<EventRow> rows =
@@ -95,17 +103,27 @@ public class EventService {
   }
 
   public AppEventDto getEventById(String eventId, String userId) {
+    markPastEventsFinished();
     EventRow row = getAccessibleEvent(eventId, userId);
     return toDto(row, eventMapper.findMediaByEventId(row.getId()).stream().map(this::toMediaDto).toList());
   }
 
   public List<AppEventDto> getMyEvents(String userId, String filter) {
+    markPastEventsFinished();
     String normalizedFilter = normalizeMyEventsFilter(filter);
     return eventMapper.findByUser(userId, normalizedFilter).stream().map(this::toDto).toList();
   }
 
   public List<AppEventDto> getLikedEvents(String userId) {
     return toDtosWithMedia(eventMapper.findLikedByUser(userId));
+  }
+
+  public List<AppEventDto> getUpcomingCreatedByUser(String targetUserId, String userId) {
+    String normalizedTargetUserId = trimToNull(targetUserId);
+    if (normalizedTargetUserId == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "userId is required.");
+    }
+    return toDtosWithMedia(eventMapper.findUpcomingCreatedByUser(normalizedTargetUserId, userId));
   }
 
   public AppEventDto joinEvent(String eventId, String userId) {
@@ -172,6 +190,37 @@ public class EventService {
     return getEventById(eventId, userId);
   }
 
+  public AppEventDto rateEvent(String eventId, EventRatingRequest request, String userId) {
+    if (request == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Request body is required.");
+    }
+
+    EventRow row = getAccessibleEvent(eventId, userId);
+    if (!canRateOrganizer(row, userId)) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Event cannot be rated.");
+    }
+
+    Integer eventRating = request.eventRating();
+    Integer organizerRating = request.organizerRating();
+    if (eventRating == null || eventRating < 1 || eventRating > 5) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "eventRating must be between 1 and 5.");
+    }
+    if (organizerRating == null || organizerRating < 1 || organizerRating > 5) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "organizerRating must be between 1 and 5.");
+    }
+
+    eventMapper.upsertEventRating(eventId, userId, eventRating, trimToNull(request.eventComment()));
+    eventMapper.refreshEventRatingAggregate(eventId);
+    eventMapper.upsertOrganizerRating(
+        eventId,
+        row.getCreatorUserId(),
+        userId,
+        organizerRating,
+        trimToNull(request.organizerComment()));
+    eventMapper.refreshOrganizerRatingAggregate(eventId);
+    return getEventById(eventId, userId);
+  }
+
   public AppEventDto likeEvent(String eventId, String userId) {
     getAccessibleEvent(eventId, userId);
     eventMapper.insertLike(eventId, userId);
@@ -225,6 +274,8 @@ public class EventService {
     row.setPriceCurrency("paid".equals(attendanceMode) ? request.priceCurrency().trim().toUpperCase() : null);
     row.setCapacity(request.capacity());
     row.setStatus(DEFAULT_STATUS);
+    row.setEventRatingAverage(BigDecimal.ZERO);
+    row.setEventRatingCount(0);
     row.setOrganizerRatingAverage(BigDecimal.ZERO);
     row.setOrganizerRatingCount(0);
 
@@ -241,6 +292,158 @@ public class EventService {
     eventMapper.upsertParticipant(row.getId(), creatorUserId, "joined");
     row.setUserParticipantStatus("joined");
     return toDto(row);
+  }
+
+  public AppEventDto updateEvent(String eventId, UpdateEventRequest request, String userId) {
+    if (request == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Request body is required.");
+    }
+
+    EventRow current = requireOwnedEvent(eventId, userId);
+    String title = firstNonBlank(request.title(), current.getTitleHr());
+    String where = firstNonBlank(request.where(), current.getWhereHr());
+    String about = firstNonBlank(request.about(), current.getAboutHr());
+    String startAtInput = firstNonBlank(request.startAt(), firstNonBlank(request.whenISO(), timestamp(current.getStartAt())));
+    OffsetDateTime startAt = parseWhenIso(startAtInput, "startAt");
+    OffsetDateTime endAt = request.endAt() == null ? current.getEndAt() : parseOptionalWhenIso(request.endAt(), "endAt");
+    if (endAt != null && endAt.isBefore(startAt)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "endAt must be after startAt.");
+    }
+
+    String visibility = request.visibility() == null ? current.getVisibility() : normalizeVisibility(request.visibility());
+    String attendanceMode =
+        request.attendanceMode() == null ? current.getAttendanceMode() : normalizeAttendanceMode(request.attendanceMode());
+    BigDecimal priceAmount = "paid".equals(attendanceMode) ? firstNonNull(request.priceAmount(), current.getPriceAmount()) : null;
+    String rawPriceCurrency = firstNonBlank(request.priceCurrency(), current.getPriceCurrency());
+    String priceCurrency = "paid".equals(attendanceMode) && rawPriceCurrency != null ? rawPriceCurrency.trim().toUpperCase() : null;
+    Integer capacity = request.capacity() == null ? current.getCapacity() : request.capacity();
+    validateCommercialFields(attendanceMode, priceAmount, priceCurrency, capacity);
+
+    CoordinatesDto coordinates = request.coordinates() == null
+        ? new CoordinatesDto(current.getLatitude(), current.getLongitude())
+        : request.coordinates();
+    validateCoordinates(coordinates, "coordinates");
+    if (request.entranceCoordinates() != null) {
+      validateCoordinates(request.entranceCoordinates(), "entranceCoordinates");
+    }
+
+    LocalizedInput entryInstructions = optionalLocalizedInput(
+        request.entryInstructions(),
+        request.entryInstructions(),
+        firstNonBlank(current.getEntryInstructionsEn(), current.getEntryInstructionsHr()));
+
+    current.setTitleHr(title.trim());
+    current.setTitleEn(title.trim());
+    current.setWhereHr(where.trim());
+    current.setWhereEn(where.trim());
+    current.setAddress(firstNonBlank(request.address(), current.getAddress()).trim());
+    current.setAboutHr(about.trim());
+    current.setAboutEn(about.trim());
+    current.setWhenIso(startAt);
+    current.setStartAt(startAt);
+    current.setEndAt(endAt);
+    current.setLatitude(coordinates.latitude());
+    current.setLongitude(coordinates.longitude());
+    current.setEntranceLatitude(request.entranceCoordinates() == null ? current.getEntranceLatitude() : request.entranceCoordinates().latitude());
+    current.setEntranceLongitude(request.entranceCoordinates() == null ? current.getEntranceLongitude() : request.entranceCoordinates().longitude());
+    current.setEntryInstructionsHr(entryInstructions == null ? null : entryInstructions.hr());
+    current.setEntryInstructionsEn(entryInstructions == null ? null : entryInstructions.en());
+    current.setVisibility(visibility);
+    current.setAttendanceMode(attendanceMode);
+    current.setPriceAmount(priceAmount);
+    current.setPriceCurrency(priceCurrency);
+    current.setCapacity(capacity);
+    current.setStatus(normalizeStatus(firstNonBlank(request.status(), current.getStatus())));
+
+    eventMapper.update(current);
+    syncTicketProduct(current);
+    return getEventById(eventId, userId);
+  }
+
+  public void deleteEvent(String eventId, String userId) {
+    requireOwnedEvent(eventId, userId);
+    eventMapper.delete(eventId);
+  }
+
+  public AppEventDto addMedia(String eventId, EventMediaRequest request, String userId) {
+    requireOwnedEvent(eventId, userId);
+    if (request == null || trimToNull(request.url()) == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "url is required.");
+    }
+
+    String mediaType = normalizeMediaType(request.mediaType());
+    EventMediaRow media = new EventMediaRow();
+    media.setId("media-" + UUID.randomUUID().toString().replace("-", "").substring(0, 18));
+    media.setEventId(eventId);
+    media.setMediaType(mediaType);
+    media.setUrl(request.url().trim());
+    media.setThumbnailUrl(trimToNull(request.thumbnailUrl()));
+    media.setSortOrder(eventMapper.findMediaByEventId(eventId).size());
+    eventMapper.insertMedia(media);
+    return getEventById(eventId, userId);
+  }
+
+  public AppEventDto deleteMedia(String eventId, String mediaId, String userId) {
+    requireOwnedEvent(eventId, userId);
+    eventMapper.deleteMedia(eventId, mediaId);
+    return getEventById(eventId, userId);
+  }
+
+  public List<EventParticipantDto> getParticipants(String eventId, String userId) {
+    requireOwnedEvent(eventId, userId);
+    return eventMapper.findParticipantsByEventId(eventId).stream().map(this::toParticipantDto).toList();
+  }
+
+  public List<EventParticipantDto> approveParticipant(String eventId, String participantUserId, String userId) {
+    requireOwnedEvent(eventId, userId);
+    eventMapper.updateParticipantStatus(eventId, participantUserId, "approved");
+    notifyParticipant(eventId, participantUserId, "event_attendance_approved", "Dolazak odobren", "Organizator je odobrio tvoj dolazak na event.");
+    return getParticipants(eventId, userId);
+  }
+
+  public List<EventParticipantDto> removeParticipant(String eventId, String participantUserId, String userId) {
+    EventRow event = requireOwnedEvent(eventId, userId);
+    if (participantUserId.equals(userId)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Owner cannot be removed from the event.");
+    }
+    boolean active = eventMapper.findParticipantsByEventId(eventId).stream()
+        .anyMatch((participant) ->
+            participantUserId.equals(participant.getUserId())
+                && ("joined".equals(participant.getStatus())
+                    || "approved".equals(participant.getStatus())
+                    || "waitlisted".equals(participant.getStatus())));
+    eventMapper.updateParticipantStatus(eventId, participantUserId, "rejected");
+    if (active) {
+      eventMapper.decrementParticipantCount(event.getId());
+    }
+    messageService.leaveEventChatRoom(eventId, participantUserId);
+    notifyParticipant(eventId, participantUserId, "event_attendance_removed", "Maknut si s eventa", "Organizator te maknuo s eventa.");
+    return getParticipants(eventId, userId);
+  }
+
+  public List<EventParticipantDto> blockParticipant(String eventId, String participantUserId, String userId) {
+    EventRow event = requireOwnedEvent(eventId, userId);
+    if ("paid".equals(event.getAttendanceMode())) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Paid events do not support event-level blocking.");
+    }
+    if (participantUserId.equals(userId)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Owner cannot be blocked from the event.");
+    }
+
+    boolean active = eventMapper.findParticipantsByEventId(eventId).stream()
+        .anyMatch((participant) ->
+            participantUserId.equals(participant.getUserId())
+                && ("joined".equals(participant.getStatus())
+                    || "approved".equals(participant.getStatus())
+                    || "waitlisted".equals(participant.getStatus())));
+    eventMapper.blockUser(eventId, participantUserId, userId);
+    eventMapper.updateParticipantStatus(eventId, participantUserId, "rejected");
+    if (active) {
+      eventMapper.decrementParticipantCount(event.getId());
+    }
+    messageService.leaveEventChatRoom(eventId, participantUserId);
+    notifyParticipant(eventId, participantUserId, "event_attendance_blocked", "Blokiran si za event", "Organizator te blokirao za ovaj event.");
+    return getParticipants(eventId, userId);
   }
 
   public AppEventDto toDto(EventRow row) {
@@ -280,11 +483,14 @@ public class EventService {
         row.getPriceCurrency(),
         row.getCapacity(),
         row.getStatus(),
+        row.getEventRatingAverage() == null ? BigDecimal.ZERO : row.getEventRatingAverage(),
+        row.getEventRatingCount(),
         row.getOrganizerRatingAverage() == null ? BigDecimal.ZERO : row.getOrganizerRatingAverage(),
         row.getOrganizerRatingCount(),
         row.getLikeCount(),
         Boolean.TRUE.equals(row.getLikedByMe()),
         row.getParticipantCount(),
+        row.getWaitlistCount(),
         isJoinedByMe(row.getUserParticipantStatus()),
         row.getUserParticipantStatus(),
         canJoin(row),
@@ -338,6 +544,25 @@ public class EventService {
     return row;
   }
 
+  private EventRow requireOwnedEvent(String eventId, String userId) {
+    EventRow row = eventMapper.findById(eventId, userId);
+    if (row == null || row.getCreatorUserId() == null || !row.getCreatorUserId().equals(userId)) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found.");
+    }
+    return row;
+  }
+
+  private EventParticipantDto toParticipantDto(EventParticipantRow row) {
+    return new EventParticipantDto(
+        row.getUserId(),
+        row.getFullName(),
+        row.getAvatarUrl(),
+        row.getStatus(),
+        timestamp(row.getJoinedAt()),
+        timestamp(row.getApprovedAt()),
+        Boolean.TRUE.equals(row.getBlocked()));
+  }
+
   private boolean canJoin(EventRow row) {
     if (!DEFAULT_STATUS.equals(row.getStatus())) {
       return false;
@@ -346,6 +571,10 @@ public class EventService {
     Integer capacity = row.getCapacity();
     if (isJoinedByMe(row.getUserParticipantStatus())) {
       return true;
+    }
+
+    if ("blocked".equals(row.getUserParticipantStatus()) || "rejected".equals(row.getUserParticipantStatus())) {
+      return false;
     }
 
     if ("waitlist".equals(row.getAttendanceMode())) {
@@ -357,6 +586,21 @@ public class EventService {
 
   private boolean isJoinedByMe(String status) {
     return "joined".equals(status) || "approved".equals(status) || "waitlisted".equals(status);
+  }
+
+  @Scheduled(fixedDelayString = "PT1H")
+  public void markPastEventsFinished() {
+    eventMapper.markPastEventsFinished();
+  }
+
+  private void notifyParticipant(String eventId, String userId, String type, String title, String body) {
+    eventMapper.insertNotification(
+        "notif-" + UUID.randomUUID().toString().replace("-", "").substring(0, 18),
+        userId,
+        type,
+        title,
+        body,
+        eventId);
   }
 
   private boolean canRateOrganizer(EventRow row, String userId) {
@@ -515,6 +759,33 @@ public class EventService {
     return DEFAULT_ATTENDANCE_MODE;
   }
 
+  private String normalizeStatus(String status) {
+    String normalized = trimToNull(status);
+    if (normalized == null) {
+      return DEFAULT_STATUS;
+    }
+
+    if ("draft".equalsIgnoreCase(normalized)
+        || "published".equalsIgnoreCase(normalized)
+        || "cancelled".equalsIgnoreCase(normalized)
+        || "finished".equalsIgnoreCase(normalized)) {
+      return normalized.toLowerCase();
+    }
+
+    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported event status.");
+  }
+
+  private String normalizeMediaType(String mediaType) {
+    String normalized = trimToNull(mediaType);
+    if (normalized == null || "image".equalsIgnoreCase(normalized)) {
+      return "image";
+    }
+    if ("video".equalsIgnoreCase(normalized)) {
+      return "video";
+    }
+    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported media type.");
+  }
+
   private void validateCommercialFields(String attendanceMode, BigDecimal priceAmount, String priceCurrency, Integer capacity) {
     if (capacity != null && capacity <= 0) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "capacity must be greater than 0.");
@@ -563,6 +834,10 @@ public class EventService {
   private String firstNonBlank(String primary, String fallback) {
     String normalizedPrimary = trimToNull(primary);
     return normalizedPrimary != null ? normalizedPrimary : fallback;
+  }
+
+  private <T> T firstNonNull(T primary, T fallback) {
+    return primary != null ? primary : fallback;
   }
 
   private String trimToNull(String value) {

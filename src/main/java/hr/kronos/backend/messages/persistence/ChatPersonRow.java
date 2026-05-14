@@ -4,6 +4,7 @@ public class ChatPersonRow {
   private String id;
   private String fullName;
   private String email;
+  private String avatarUrl;
 
   public String getId() {
     return id;
@@ -27,5 +28,13 @@ public class ChatPersonRow {
 
   public void setEmail(String email) {
     this.email = email;
+  }
+
+  public String getAvatarUrl() {
+    return avatarUrl;
+  }
+
+  public void setAvatarUrl(String avatarUrl) {
+    this.avatarUrl = avatarUrl;
   }
 }
