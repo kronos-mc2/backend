@@ -9,6 +9,8 @@ import java.util.List;
 public record AppEventDto(
     String id,
     String creatorUserId,
+    String creatorName,
+    String creatorAvatarUrl,
     LocalizedTextDto title,
     @JsonProperty("where") LocalizedTextDto whereText,
     String address,

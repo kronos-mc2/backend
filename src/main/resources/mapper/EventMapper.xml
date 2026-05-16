@@ -7,6 +7,8 @@
   <sql id="eventColumns">
     e.id,
     e.creator_user_id,
+    (SELECT creator.full_name FROM app_users creator WHERE creator.id = e.creator_user_id) AS creator_name,
+    (SELECT creator.avatar_url FROM app_users creator WHERE creator.id = e.creator_user_id) AS creator_avatar_url,
     e.title_hr,
     e.title_en,
     e.where_hr,

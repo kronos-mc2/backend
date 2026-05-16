@@ -10,6 +10,7 @@ import hr.kronos.backend.api.dto.CreatePollRequest;
 import hr.kronos.backend.api.dto.PollDto;
 import hr.kronos.backend.api.dto.SendMessageRequest;
 import hr.kronos.backend.api.dto.ShareEventRequest;
+import hr.kronos.backend.api.dto.UpdateChatNotificationSettingsRequest;
 import hr.kronos.backend.api.dto.UpdateChatRoomRequest;
 import hr.kronos.backend.api.dto.VotePollRequest;
 import hr.kronos.backend.auth.AuthPrincipal;
@@ -76,7 +77,16 @@ public class MessageController {
   public ChatRoomDto updateChatRoom(
       @PathVariable String id, @RequestBody UpdateChatRoomRequest request, Authentication authentication) {
     AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
-    return messageService.updateChatRoom(id, request.adminOnly(), principal.userId());
+    return messageService.updateChatRoom(id, request == null ? null : request.adminOnly(), principal.userId());
+  }
+
+  @PatchMapping("/chat-rooms/{id}/notification-settings")
+  public ChatRoomDto updateChatNotificationSettings(
+      @PathVariable String id,
+      @RequestBody UpdateChatNotificationSettingsRequest request,
+      Authentication authentication) {
+    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
+    return messageService.updateChatNotificationSettings(id, request == null ? null : request.muted(), principal.userId());
   }
 
   @GetMapping("/chat-rooms/{id}/messages")

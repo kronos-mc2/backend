@@ -21,6 +21,7 @@ public class ChatRoomRow {
   private Integer unreadCount;
   private Integer memberCount;
   private String myRole;
+  private Boolean mutedByMe;
 
   public String getId() {
     return id;
@@ -164,5 +165,13 @@ public class ChatRoomRow {
 
   public void setMyRole(String myRole) {
     this.myRole = myRole;
+  }
+
+  public Boolean getMutedByMe() {
+    return mutedByMe;
+  }
+
+  public void setMutedByMe(Boolean mutedByMe) {
+    this.mutedByMe = mutedByMe;
   }
 }

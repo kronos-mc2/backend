@@ -138,6 +138,8 @@ You can override with env vars:
 - `STRIPE_PUBLISHABLE_KEY` (publishable key koji frontend moze dobiti u checkout responseu kad se ukljuci realni Stripe flow)
 - `LOCATION_SEARCH_NOMINATIM_BASE_URL` (default `https://nominatim.openstreetmap.org`)
 - `LOCATION_SEARCH_USER_AGENT` (default `GdjeIKadaBackend/1.0`; promijeni za produkcijski deployment)
+- `APP_NOTIFICATIONS_PUSH_ENABLED` / property `app.notifications.push.enabled` (default `true`; iskljucuje remote push slanje bez gasenja preferenci/tokena)
+- `APP_NOTIFICATIONS_EXPO_ENDPOINT` / property `app.notifications.expo.endpoint` (default `https://exp.host/--/api/v2/push/send`)
 - `APP_WEBSOCKET_ALLOWED_ORIGINS` / property `app.websocket.allowed-origins` za WebSocket origin allowlistu; default je `*` za native/local razvoj
 
 ## API routes
@@ -168,6 +170,10 @@ You can override with env vars:
 - `PATCH /api/users/me/profile`
 - `GET /api/users/me/activity`
 - `GET /api/users/me/transactions`
+- `GET /api/users/me/notifications/preferences`
+- `PATCH /api/users/me/notifications/preferences`
+- `POST /api/users/me/notifications/push-tokens`
+- `DELETE /api/users/me/notifications/push-tokens?token=`
 - `GET /api/feed?cursor=&limit=`
 - `GET /api/social/friends`
 - `GET /api/messages/chat-rooms?query=`
@@ -175,6 +181,7 @@ You can override with env vars:
 - `POST /api/messages/events/{eventId}/chat-room`
 - `GET /api/messages/chat-rooms/{id}`
 - `PATCH /api/messages/chat-rooms/{id}`
+- `PATCH /api/messages/chat-rooms/{id}/notification-settings`
 - `GET /api/messages/chat-rooms/{id}/messages`
 - `POST /api/messages/chat-rooms/{id}/messages`
 - `POST /api/messages/chat-rooms/{id}/share-event`
@@ -192,12 +199,15 @@ You can override with env vars:
 Napomena: `/api/events` i `/api/feed` vracaju samo evente gdje je `visibility = public`.
 Svi `/api/**` endpointi (osim javnih auth endpointa) traze `Authorization: Bearer <token>`.
 `POST /api/events` prihvaca canonical single-language polja `title`, `where`, `about` i opcionalni `entryInstructions`; backend ih sprema u postojece HR/EN stupce. Stara `titleHr/titleEn`, `whereHr/whereEn`, `aboutHr/aboutEn` i `entryInstructionsHr/entryInstructionsEn` polja ostaju podrzana radi kompatibilnosti.
+Event response DTO dodatno vraca `creatorName` i `creatorAvatarUrl` iz `app_users` kad creator postoji, kako map/feed/details klijenti mogu prikazati organizatora bez dodatnog profila requesta.
 Owner-only event management endpointi dopustaju creatoru update/delete eventa, media URL management, pregled/prihvacanje waitliste, micanje sudionika i blokiranje korisnika s neplacenog eventa. Owner remove sprema participant status `rejected`, block dodatno sprema `event_blocks`, a backend zapisuje in-app `app_notifications` za approve/remove/block. Blokirani korisnici vise ne vide event kroz map/feed/list discovery i ne mogu ga ponovno joinati; profil/kalendar mogu prikazati status `blocked`.
 `POST /api/events/{id}/ratings/full` sprema odvojenu ocjenu/komentar za event u `event_ratings` i ocjenu/komentar za organizatora u `event_organizer_ratings`. Backend scheduler oznacava `published` evente kao `finished` jedan dan nakon `end_at/start_at/when_iso`.
 `GET /api/locations/search` proxyja Nominatim/OpenStreetMap location autocomplete s limitom, localeom, opcionalnom proximity koordinatom i kratkim in-memory cacheom; koristi se u frontend create event address flowu.
 
 `GET /api/messages/chat-rooms` vraca samo sobe u kojima je trenutni korisnik clan kroz `chat_members`; legacy seed razgovori `c1/c2/c3` se brisu migracijom `V6__remove_legacy_mock_chats.sql`.
-Chat room/member/message DTO-ovi vracaju `avatarUrl` iz `app_users.avatar_url`; direct roomovi dodatno vracaju `directUserId` za dohvat buducih eventova sugovornika. Direct chatovi ignoriraju `adminOnly` i oba korisnika mogu pisati.
+Chat room/member/message DTO-ovi vracaju `avatarUrl` iz `app_users.avatar_url`; direct roomovi dodatno vracaju `directUserId` za dohvat buducih eventova sugovornika. Direct chatovi ignoriraju `adminOnly` i oba korisnika mogu pisati. Chat room DTO vraca i `mutedByMe`, a `PATCH /api/messages/chat-rooms/{id}/notification-settings` sprema per-chat mute u `chat_notification_mutes`.
+
+Poruke salju Expo push notifikacije nakon uspjesnog REST writea (`text`, `event_share`, `poll`). Primatelji se filtriraju server-side prema `user_notification_preferences`, `chat_notification_mutes`, clanstvu u sobi i aktivnim `user_push_tokens`; posiljatelj se nikad ne obavjestava. Expo `DeviceNotRegistered` odgovor automatski disablea taj token.
 
 `GET /api/messages/people?query=` vraca praznu listu za prazan ili prekratak query, tako da novi chat ne ucitava cijeli popis korisnika prije stvarne pretrage.
 

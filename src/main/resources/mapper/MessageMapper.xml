@@ -84,7 +84,13 @@
       FROM chat_members member_count
       WHERE member_count.room_id = cr.id
     ) AS member_count,
-    cm.role AS my_role
+    cm.role AS my_role,
+    EXISTS (
+      SELECT 1
+      FROM chat_notification_mutes mute
+      WHERE mute.room_id = cr.id
+        AND mute.user_id = #{userId}
+    ) AS muted_by_me
   </sql>
 
   <select id="findConversations" resultType="hr.kronos.backend.messages.persistence.ConversationRow">

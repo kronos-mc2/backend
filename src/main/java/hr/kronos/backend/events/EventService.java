@@ -466,6 +466,8 @@ public class EventService {
     return new AppEventDto(
         row.getId(),
         row.getCreatorUserId(),
+        row.getCreatorName(),
+        row.getCreatorAvatarUrl(),
         new LocalizedTextDto(row.getTitleHr(), row.getTitleEn()),
         new LocalizedTextDto(row.getWhereHr(), row.getWhereEn()),
         row.getAddress(),

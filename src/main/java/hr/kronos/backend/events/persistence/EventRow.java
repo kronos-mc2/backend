@@ -6,6 +6,8 @@ import java.time.OffsetDateTime;
 public class EventRow {
   private String id;
   private String creatorUserId;
+  private String creatorName;
+  private String creatorAvatarUrl;
   private String titleHr;
   private String titleEn;
   private String whereHr;
@@ -53,6 +55,22 @@ public class EventRow {
 
   public void setCreatorUserId(String creatorUserId) {
     this.creatorUserId = creatorUserId;
+  }
+
+  public String getCreatorName() {
+    return creatorName;
+  }
+
+  public void setCreatorName(String creatorName) {
+    this.creatorName = creatorName;
+  }
+
+  public String getCreatorAvatarUrl() {
+    return creatorAvatarUrl;
+  }
+
+  public void setCreatorAvatarUrl(String creatorAvatarUrl) {
+    this.creatorAvatarUrl = creatorAvatarUrl;
   }
 
   public String getTitleHr() {

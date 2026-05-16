@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+  PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+  "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="hr.kronos.backend.notifications.persistence.NotificationMapper">
+
+  <select id="findPreferences" resultType="hr.kronos.backend.notifications.persistence.NotificationPreferencesRow">
+    SELECT
+      direct_messages_enabled,
+      group_messages_enabled
+    FROM user_notification_preferences
+    WHERE user_id = #{userId}
+    LIMIT 1
+  </select>
+
+  <insert id="upsertPreferences">
+    INSERT INTO user_notification_preferences (
+      user_id,
+      direct_messages_enabled,
+      group_messages_enabled
+    ) VALUES (
+      #{userId},
+      #{directMessagesEnabled},
+      #{groupMessagesEnabled}
+    )
+    ON CONFLICT (user_id)
+    DO UPDATE SET
+      direct_messages_enabled = EXCLUDED.direct_messages_enabled,
+      group_messages_enabled = EXCLUDED.group_messages_enabled,
+      updated_at = NOW()
+  </insert>
+
+  <insert id="upsertPushToken">
+    INSERT INTO user_push_tokens (
+      id,
+      user_id,
+      token,
+      platform,
+      device_id,
+      enabled,
+      last_registered_at
+    ) VALUES (
+      #{id},
+      #{userId},
+      #{token},
+      #{platform},
+      #{deviceId},
+      TRUE,
+      NOW()
+    )
+    ON CONFLICT (token)
+    DO UPDATE SET
+      user_id = EXCLUDED.user_id,
+      platform = EXCLUDED.platform,
+      device_id = EXCLUDED.device_id,
+      enabled = TRUE,
+      last_registered_at = NOW(),
+      updated_at = NOW()
+  </insert>
+
+  <update id="disablePushToken">
+    UPDATE user_push_tokens
+    SET enabled = FALSE,
+        updated_at = NOW()
+    WHERE user_id = #{userId}
+      AND token = #{token}
+  </update>
+
+  <update id="disablePushTokenById">
+    UPDATE user_push_tokens
+    SET enabled = FALSE,
+        updated_at = NOW()
+    WHERE id = #{tokenId}
+  </update>
+
+  <select id="isRoomMutedForUser" resultType="boolean">
+    SELECT EXISTS (
+      SELECT 1
+      FROM chat_notification_mutes
+      WHERE room_id = #{roomId}
+        AND user_id = #{userId}
+    )
+  </select>
+
+  <insert id="muteRoom">
+    INSERT INTO chat_notification_mutes (
+      room_id,
+      user_id
+    ) VALUES (
+      #{roomId},
+      #{userId}
+    )
+    ON CONFLICT (room_id, user_id)
+    DO UPDATE SET muted_at = NOW()
+  </insert>
+
+  <delete id="unmuteRoom">
+    DELETE FROM chat_notification_mutes
+    WHERE room_id = #{roomId}
+      AND user_id = #{userId}
+  </delete>
+
+  <select id="findPushRecipientsForChatMessage" resultType="hr.kronos.backend.notifications.persistence.PushNotificationRecipientRow">
+    SELECT
+      cm.user_id,
+      upt.id AS token_id,
+      upt.token,
+      cr.room_type,
+      COALESCE(
+        cr.title,
+        CASE
+          WHEN cr.room_type = 'direct' THEN (
+            SELECT u.full_name
+            FROM chat_members cm_other
+            INNER JOIN app_users u ON u.id = cm_other.user_id
+            WHERE cm_other.room_id = cr.id
+              AND cm_other.user_id &lt;&gt; cm.user_id
+            ORDER BY u.full_name ASC
+            LIMIT 1
+          )
+          ELSE NULL
+        END,
+        'Razgovor'
+      ) AS room_title
+    FROM chat_rooms cr
+    INNER JOIN chat_members cm ON cm.room_id = cr.id
+    INNER JOIN user_push_tokens upt
+      ON upt.user_id = cm.user_id
+      AND upt.enabled = TRUE
+    LEFT JOIN user_notification_preferences unp ON unp.user_id = cm.user_id
+    LEFT JOIN chat_notification_mutes cnm
+      ON cnm.room_id = cr.id
+      AND cnm.user_id = cm.user_id
+    WHERE cr.id = #{roomId}
+      AND cm.user_id &lt;&gt; #{senderUserId}
+      AND cnm.user_id IS NULL
+      AND (
+        (cr.room_type = 'direct' AND COALESCE(unp.direct_messages_enabled, TRUE) = TRUE)
+        OR (cr.room_type IN ('group', 'event') AND COALESCE(unp.group_messages_enabled, TRUE) = TRUE)
+      )
+    ORDER BY cm.user_id ASC, upt.last_registered_at DESC
+  </select>
+
+</mapper>

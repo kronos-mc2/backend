@@ -28,6 +28,7 @@ import hr.kronos.backend.messages.persistence.PollOptionRow;
 import hr.kronos.backend.messages.persistence.PollRow;
 import hr.kronos.backend.messages.realtime.ChatRealtimeEvent;
 import hr.kronos.backend.messages.realtime.ChatRealtimeService;
+import hr.kronos.backend.notifications.NotificationService;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -51,16 +52,19 @@ public class MessageService {
   private final EventMapper eventMapper;
   private final AuthMapper authMapper;
   private final ChatRealtimeService chatRealtimeService;
+  private final NotificationService notificationService;
 
   public MessageService(
       MessageMapper messageMapper,
       EventMapper eventMapper,
       AuthMapper authMapper,
-      ChatRealtimeService chatRealtimeService) {
+      ChatRealtimeService chatRealtimeService,
+      NotificationService notificationService) {
     this.messageMapper = messageMapper;
     this.eventMapper = eventMapper;
     this.authMapper = authMapper;
     this.chatRealtimeService = chatRealtimeService;
+    this.notificationService = notificationService;
   }
 
   public List<ConversationDto> getConversations() {
@@ -213,6 +217,15 @@ public class MessageService {
     return roomDto;
   }
 
+  public ChatRoomDto updateChatNotificationSettings(String roomId, Boolean muted, String userId) {
+    requireRoom(roomId, userId);
+    notificationService.setChatMuted(roomId, Boolean.TRUE.equals(muted), userId);
+    ChatRoomRow refreshed = requireRoom(roomId, userId);
+    ChatRoomDto roomDto = toRoomDto(refreshed, messageMapper.findMembersForRoom(roomId).stream().map(this::toMemberDto).toList());
+    publishRoomUpdated(roomId);
+    return roomDto;
+  }
+
   public ChatMessageDto sendTextMessage(String roomId, String body, String userId) {
     ChatRoomRow room = requireRoom(roomId, userId);
     requireCanWrite(room, userId);
@@ -230,6 +243,7 @@ public class MessageService {
     messageMapper.touchRoom(roomId);
     ChatMessageDto messageDto = toMessageDto(messageMapper.findMessageById(message.getId(), userId), userId);
     publishMessageCreated(roomId, messageDto.id());
+    notificationService.sendChatMessagePush(roomId, messageDto, userId);
     return messageDto;
   }
 
@@ -251,6 +265,7 @@ public class MessageService {
     updateLegacyConversationPreview(roomId, event);
     ChatMessageDto messageDto = toMessageDto(messageMapper.findMessageById(message.getId(), userId), userId);
     publishMessageCreated(roomId, messageDto.id());
+    notificationService.sendChatMessagePush(roomId, messageDto, userId);
     return messageDto;
   }
 
@@ -295,6 +310,7 @@ public class MessageService {
     messageMapper.touchRoom(roomId);
     ChatMessageDto messageDto = toMessageDto(messageMapper.findMessageById(message.getId(), userId), userId);
     publishMessageCreated(roomId, messageDto.id());
+    notificationService.sendChatMessagePush(roomId, messageDto, userId);
     return messageDto;
   }
 
@@ -388,6 +404,7 @@ public class MessageService {
         row.getMemberCount() == null ? 0 : row.getMemberCount(),
         row.getMyRole(),
         Boolean.TRUE.equals(row.getAdminOnly()),
+        Boolean.TRUE.equals(row.getMutedByMe()),
         row.getEventId(),
         members);
   }

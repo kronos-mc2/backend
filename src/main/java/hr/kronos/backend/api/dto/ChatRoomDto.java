@@ -16,5 +16,6 @@ public record ChatRoomDto(
     int memberCount,
     String myRole,
     boolean adminOnly,
+    boolean mutedByMe,
     String eventId,
     List<ChatMemberDto> members) {}
