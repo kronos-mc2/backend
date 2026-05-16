@@ -72,7 +72,7 @@ public class AuthService {
     user.setPasswordHash(passwordEncoder.encode(password));
     try {
       authMapper.insert(user);
-    } catch (DuplicateKeyException exception) {
+    } catch (DuplicateKeyException _) {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already exists.");
     }
 
@@ -149,7 +149,7 @@ public class AuthService {
       user.setPasswordHash(null);
       try {
         authMapper.insert(user);
-      } catch (DuplicateKeyException exception) {
+      } catch (DuplicateKeyException _) {
         user = authMapper.findByEmail(email);
         if (user == null) {
           throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already exists.");

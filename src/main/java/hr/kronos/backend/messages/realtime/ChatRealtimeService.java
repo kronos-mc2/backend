@@ -31,7 +31,7 @@ public class ChatRealtimeService {
 
     try {
       sessionRegistry.sendToUsers(memberUserIds, objectMapper.writeValueAsString(event));
-    } catch (JsonProcessingException ignored) {
+    } catch (JsonProcessingException _) {
       // A realtime miss should not fail the already-committed chat action.
     }
   }

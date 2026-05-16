@@ -13,7 +13,6 @@ import hr.kronos.backend.api.dto.ShareEventRequest;
 import hr.kronos.backend.api.dto.UpdateChatNotificationSettingsRequest;
 import hr.kronos.backend.api.dto.UpdateChatRoomRequest;
 import hr.kronos.backend.api.dto.VotePollRequest;
-import hr.kronos.backend.auth.AuthPrincipal;
 import hr.kronos.backend.messages.MessageService;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -44,40 +43,40 @@ public class MessageController {
 
   @GetMapping("/people")
   public List<ChatPersonDto> searchPeople(@RequestParam(required = false) String query, Authentication authentication) {
-    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
-    return messageService.searchPeople(principal.userId(), query);
+    String userId = AuthenticatedUser.userId(authentication);
+    return messageService.searchPeople(userId, query);
   }
 
   @GetMapping("/chat-rooms")
   public List<ChatRoomDto> getChatRooms(@RequestParam(required = false) String query, Authentication authentication) {
-    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
-    return messageService.getChatRooms(principal.userId(), query);
+    String userId = AuthenticatedUser.userId(authentication);
+    return messageService.getChatRooms(userId, query);
   }
 
   @PostMapping("/chat-rooms")
   @ResponseStatus(HttpStatus.CREATED)
   public ChatRoomDto createChatRoom(@RequestBody CreateChatRoomRequest request, Authentication authentication) {
-    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
-    return messageService.createChatRoom(request, principal.userId());
+    String userId = AuthenticatedUser.userId(authentication);
+    return messageService.createChatRoom(request, userId);
   }
 
   @PostMapping("/events/{eventId}/chat-room")
   public ChatRoomDto getOrCreateEventChatRoom(@PathVariable String eventId, Authentication authentication) {
-    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
-    return messageService.getOrCreateEventChatRoom(eventId, principal.userId());
+    String userId = AuthenticatedUser.userId(authentication);
+    return messageService.getOrCreateEventChatRoom(eventId, userId);
   }
 
   @GetMapping("/chat-rooms/{id}")
   public ChatRoomDetailDto getChatRoom(@PathVariable String id, Authentication authentication) {
-    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
-    return messageService.getChatRoom(id, principal.userId());
+    String userId = AuthenticatedUser.userId(authentication);
+    return messageService.getChatRoom(id, userId);
   }
 
   @PatchMapping("/chat-rooms/{id}")
   public ChatRoomDto updateChatRoom(
       @PathVariable String id, @RequestBody UpdateChatRoomRequest request, Authentication authentication) {
-    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
-    return messageService.updateChatRoom(id, request == null ? null : request.adminOnly(), principal.userId());
+    String userId = AuthenticatedUser.userId(authentication);
+    return messageService.updateChatRoom(id, request == null ? null : request.adminOnly(), userId);
   }
 
   @PatchMapping("/chat-rooms/{id}/notification-settings")
@@ -85,50 +84,50 @@ public class MessageController {
       @PathVariable String id,
       @RequestBody UpdateChatNotificationSettingsRequest request,
       Authentication authentication) {
-    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
-    return messageService.updateChatNotificationSettings(id, request == null ? null : request.muted(), principal.userId());
+    String userId = AuthenticatedUser.userId(authentication);
+    return messageService.updateChatNotificationSettings(id, request == null ? null : request.muted(), userId);
   }
 
   @GetMapping("/chat-rooms/{id}/messages")
   public List<ChatMessageDto> getMessages(@PathVariable String id, Authentication authentication) {
-    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
-    return messageService.getMessages(id, principal.userId());
+    String userId = AuthenticatedUser.userId(authentication);
+    return messageService.getMessages(id, userId);
   }
 
   @PostMapping("/chat-rooms/{id}/messages")
   @ResponseStatus(HttpStatus.CREATED)
   public ChatMessageDto sendMessage(
       @PathVariable String id, @RequestBody SendMessageRequest request, Authentication authentication) {
-    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
-    return messageService.sendTextMessage(id, request.body(), principal.userId());
+    String userId = AuthenticatedUser.userId(authentication);
+    return messageService.sendTextMessage(id, request.body(), userId);
   }
 
   @PostMapping("/chat-rooms/{id}/share-event")
   @ResponseStatus(HttpStatus.CREATED)
   public ChatMessageDto shareEvent(
       @PathVariable String id, @RequestBody ShareEventRequest request, Authentication authentication) {
-    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
-    return messageService.shareEvent(id, request.eventId(), principal.userId());
+    String userId = AuthenticatedUser.userId(authentication);
+    return messageService.shareEvent(id, request.eventId(), userId);
   }
 
   @PostMapping("/chat-rooms/{id}/polls")
   @ResponseStatus(HttpStatus.CREATED)
   public ChatMessageDto createPoll(
       @PathVariable String id, @RequestBody CreatePollRequest request, Authentication authentication) {
-    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
-    return messageService.createPoll(id, request, principal.userId());
+    String userId = AuthenticatedUser.userId(authentication);
+    return messageService.createPoll(id, request, userId);
   }
 
   @PostMapping("/polls/{id}/vote")
   public PollDto votePoll(@PathVariable String id, @RequestBody VotePollRequest request, Authentication authentication) {
-    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
-    return messageService.votePoll(id, request, principal.userId());
+    String userId = AuthenticatedUser.userId(authentication);
+    return messageService.votePoll(id, request, userId);
   }
 
   @PostMapping("/conversations/{id}/share-event")
   public ConversationDto shareEventToLegacyConversation(
       @PathVariable String id, @RequestBody ShareEventRequest request, Authentication authentication) {
-    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
-    return messageService.shareEventToLegacyConversation(id, request.eventId(), principal.userId());
+    String userId = AuthenticatedUser.userId(authentication);
+    return messageService.shareEventToLegacyConversation(id, request.eventId(), userId);
   }
 }

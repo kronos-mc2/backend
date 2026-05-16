@@ -34,12 +34,26 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class EventService {
   private static final String CREATED_EVENT_TYPE = "created";
-  private static final String DEFAULT_STATUS = "published";
+  private static final String STATUS_PUBLISHED = "published";
+  private static final String DEFAULT_STATUS = STATUS_PUBLISHED;
   private static final String DEFAULT_ATTENDANCE_MODE = "open";
   private static final String DEFAULT_VISIBILITY = "public";
+  private static final String FIELD_START_AT = "startAt";
+  private static final String ATTENDANCE_MODE_PAID = "paid";
+  private static final String ATTENDANCE_MODE_WAITLIST = "waitlist";
+  private static final String MEDIA_TYPE_IMAGE = "image";
+  private static final String MEDIA_TYPE_VIDEO = "video";
+  private static final String PARTICIPANT_STATUS_APPROVED = "approved";
+  private static final String PARTICIPANT_STATUS_JOINED = "joined";
+  private static final String PARTICIPANT_STATUS_LEFT = "left";
+  private static final String PARTICIPANT_STATUS_REJECTED = "rejected";
+  private static final String PARTICIPANT_STATUS_WAITLISTED = "waitlisted";
   private static final String MY_EVENTS_FILTER_ALL = "all";
-  private static final String MY_EVENTS_FILTER_JOINED = "joined";
+  private static final String MY_EVENTS_FILTER_JOINED = PARTICIPANT_STATUS_JOINED;
   private static final String MY_EVENTS_FILTER_CREATED = "created";
+  private static final String STATUS_CANCELLED = "cancelled";
+  private static final String STATUS_DRAFT = "draft";
+  private static final String STATUS_FINISHED = "finished";
   private static final int DEFAULT_FEED_LIMIT = 5;
   private static final int MAX_FEED_LIMIT = 10;
 
@@ -139,8 +153,8 @@ public class EventService {
   private AppEventDto joinEvent(EventRow row, String eventId, String userId) {
     String currentStatus = row.getUserParticipantStatus();
     boolean shouldIncrement =
-        currentStatus == null || "left".equals(currentStatus) || "rejected".equals(currentStatus);
-    String nextStatus = "waitlist".equals(row.getAttendanceMode()) ? "waitlisted" : "joined";
+        currentStatus == null || PARTICIPANT_STATUS_LEFT.equals(currentStatus) || PARTICIPANT_STATUS_REJECTED.equals(currentStatus);
+    String nextStatus = ATTENDANCE_MODE_WAITLIST.equals(row.getAttendanceMode()) ? PARTICIPANT_STATUS_WAITLISTED : PARTICIPANT_STATUS_JOINED;
 
     eventMapper.upsertParticipant(eventId, userId, nextStatus);
     if (shouldIncrement) {
@@ -155,9 +169,9 @@ public class EventService {
     EventRow row = getAccessibleEvent(eventId, userId);
     String currentStatus = row.getUserParticipantStatus();
     boolean shouldDecrement =
-        "joined".equals(currentStatus) || "approved".equals(currentStatus) || "waitlisted".equals(currentStatus);
+        PARTICIPANT_STATUS_JOINED.equals(currentStatus) || PARTICIPANT_STATUS_APPROVED.equals(currentStatus) || PARTICIPANT_STATUS_WAITLISTED.equals(currentStatus);
 
-    eventMapper.upsertParticipant(eventId, userId, "left");
+    eventMapper.upsertParticipant(eventId, userId, PARTICIPANT_STATUS_LEFT);
     if (shouldDecrement) {
       eventMapper.decrementParticipantCount(eventId);
     }
@@ -236,7 +250,7 @@ public class EventService {
   public AppEventDto createEvent(CreateEventRequest request, String creatorUserId) {
     validateRequest(request);
 
-    OffsetDateTime startAt = parseWhenIso(firstNonBlank(request.startAt(), request.whenISO()), "startAt");
+    OffsetDateTime startAt = parseWhenIso(firstNonBlank(request.startAt(), request.whenISO()), FIELD_START_AT);
     OffsetDateTime endAt = parseOptionalWhenIso(request.endAt(), "endAt");
     if (endAt != null && endAt.isBefore(startAt)) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "endAt must be after startAt.");
@@ -270,8 +284,8 @@ public class EventService {
     row.setParticipantCount(1);
     row.setVisibility(visibility);
     row.setAttendanceMode(attendanceMode);
-    row.setPriceAmount("paid".equals(attendanceMode) ? request.priceAmount() : null);
-    row.setPriceCurrency("paid".equals(attendanceMode) ? request.priceCurrency().trim().toUpperCase() : null);
+    row.setPriceAmount(ATTENDANCE_MODE_PAID.equals(attendanceMode) ? request.priceAmount() : null);
+    row.setPriceCurrency(ATTENDANCE_MODE_PAID.equals(attendanceMode) ? request.priceCurrency().trim().toUpperCase() : null);
     row.setCapacity(request.capacity());
     row.setStatus(DEFAULT_STATUS);
     row.setEventRatingAverage(BigDecimal.ZERO);
@@ -289,8 +303,8 @@ public class EventService {
 
     eventMapper.insert(row);
     syncTicketProduct(row);
-    eventMapper.upsertParticipant(row.getId(), creatorUserId, "joined");
-    row.setUserParticipantStatus("joined");
+    eventMapper.upsertParticipant(row.getId(), creatorUserId, PARTICIPANT_STATUS_JOINED);
+    row.setUserParticipantStatus(PARTICIPANT_STATUS_JOINED);
     return toDto(row);
   }
 
@@ -303,25 +317,16 @@ public class EventService {
     String title = firstNonBlank(request.title(), current.getTitleHr());
     String where = firstNonBlank(request.where(), current.getWhereHr());
     String about = firstNonBlank(request.about(), current.getAboutHr());
-    String startAtInput = firstNonBlank(request.startAt(), firstNonBlank(request.whenISO(), timestamp(current.getStartAt())));
-    OffsetDateTime startAt = parseWhenIso(startAtInput, "startAt");
-    OffsetDateTime endAt = request.endAt() == null ? current.getEndAt() : parseOptionalWhenIso(request.endAt(), "endAt");
-    if (endAt != null && endAt.isBefore(startAt)) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "endAt must be after startAt.");
-    }
+    OffsetDateTime startAt = resolveUpdatedStartAt(request, current);
+    OffsetDateTime endAt = resolveUpdatedEndAt(request, startAt, current);
+    String visibility = resolveUpdatedVisibility(request, current);
+    String attendanceMode = resolveUpdatedAttendanceMode(request, current);
+    BigDecimal priceAmount = resolveUpdatedPriceAmount(request, current, attendanceMode);
+    String priceCurrency = resolveUpdatedPriceCurrency(request, current, attendanceMode);
+    Integer capacity = firstNonNull(request.capacity(), current.getCapacity());
+    CoordinatesDto coordinates = resolveUpdatedCoordinates(request, current);
 
-    String visibility = request.visibility() == null ? current.getVisibility() : normalizeVisibility(request.visibility());
-    String attendanceMode =
-        request.attendanceMode() == null ? current.getAttendanceMode() : normalizeAttendanceMode(request.attendanceMode());
-    BigDecimal priceAmount = "paid".equals(attendanceMode) ? firstNonNull(request.priceAmount(), current.getPriceAmount()) : null;
-    String rawPriceCurrency = firstNonBlank(request.priceCurrency(), current.getPriceCurrency());
-    String priceCurrency = "paid".equals(attendanceMode) && rawPriceCurrency != null ? rawPriceCurrency.trim().toUpperCase() : null;
-    Integer capacity = request.capacity() == null ? current.getCapacity() : request.capacity();
     validateCommercialFields(attendanceMode, priceAmount, priceCurrency, capacity);
-
-    CoordinatesDto coordinates = request.coordinates() == null
-        ? new CoordinatesDto(current.getLatitude(), current.getLongitude())
-        : request.coordinates();
     validateCoordinates(coordinates, "coordinates");
     if (request.entranceCoordinates() != null) {
       validateCoordinates(request.entranceCoordinates(), "entranceCoordinates");
@@ -360,6 +365,49 @@ public class EventService {
     return getEventById(eventId, userId);
   }
 
+  private OffsetDateTime resolveUpdatedStartAt(UpdateEventRequest request, EventRow current) {
+    String startAtInput = firstNonBlank(request.startAt(), firstNonBlank(request.whenISO(), timestamp(current.getStartAt())));
+    return parseWhenIso(startAtInput, FIELD_START_AT);
+  }
+
+  private OffsetDateTime resolveUpdatedEndAt(UpdateEventRequest request, OffsetDateTime startAt, EventRow current) {
+    OffsetDateTime endAt = request.endAt() == null ? current.getEndAt() : parseOptionalWhenIso(request.endAt(), "endAt");
+    if (endAt != null && endAt.isBefore(startAt)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "endAt must be after startAt.");
+    }
+    return endAt;
+  }
+
+  private String resolveUpdatedVisibility(UpdateEventRequest request, EventRow current) {
+    return request.visibility() == null ? current.getVisibility() : normalizeVisibility(request.visibility());
+  }
+
+  private String resolveUpdatedAttendanceMode(UpdateEventRequest request, EventRow current) {
+    return request.attendanceMode() == null
+        ? current.getAttendanceMode()
+        : normalizeAttendanceMode(request.attendanceMode());
+  }
+
+  private BigDecimal resolveUpdatedPriceAmount(
+      UpdateEventRequest request, EventRow current, String attendanceMode) {
+    return ATTENDANCE_MODE_PAID.equals(attendanceMode)
+        ? firstNonNull(request.priceAmount(), current.getPriceAmount())
+        : null;
+  }
+
+  private String resolveUpdatedPriceCurrency(UpdateEventRequest request, EventRow current, String attendanceMode) {
+    String rawPriceCurrency = firstNonBlank(request.priceCurrency(), current.getPriceCurrency());
+    return ATTENDANCE_MODE_PAID.equals(attendanceMode) && rawPriceCurrency != null
+        ? rawPriceCurrency.trim().toUpperCase()
+        : null;
+  }
+
+  private CoordinatesDto resolveUpdatedCoordinates(UpdateEventRequest request, EventRow current) {
+    return request.coordinates() == null
+        ? new CoordinatesDto(current.getLatitude(), current.getLongitude())
+        : request.coordinates();
+  }
+
   public void deleteEvent(String eventId, String userId) {
     requireOwnedEvent(eventId, userId);
     eventMapper.delete(eventId);
@@ -396,7 +444,7 @@ public class EventService {
 
   public List<EventParticipantDto> approveParticipant(String eventId, String participantUserId, String userId) {
     requireOwnedEvent(eventId, userId);
-    eventMapper.updateParticipantStatus(eventId, participantUserId, "approved");
+    eventMapper.updateParticipantStatus(eventId, participantUserId, PARTICIPANT_STATUS_APPROVED);
     notifyParticipant(eventId, participantUserId, "event_attendance_approved", "Dolazak odobren", "Organizator je odobrio tvoj dolazak na event.");
     return getParticipants(eventId, userId);
   }
@@ -407,12 +455,12 @@ public class EventService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Owner cannot be removed from the event.");
     }
     boolean active = eventMapper.findParticipantsByEventId(eventId).stream()
-        .anyMatch((participant) ->
+        .anyMatch(participant ->
             participantUserId.equals(participant.getUserId())
-                && ("joined".equals(participant.getStatus())
-                    || "approved".equals(participant.getStatus())
-                    || "waitlisted".equals(participant.getStatus())));
-    eventMapper.updateParticipantStatus(eventId, participantUserId, "rejected");
+                && (PARTICIPANT_STATUS_JOINED.equals(participant.getStatus())
+                    || PARTICIPANT_STATUS_APPROVED.equals(participant.getStatus())
+                    || PARTICIPANT_STATUS_WAITLISTED.equals(participant.getStatus())));
+    eventMapper.updateParticipantStatus(eventId, participantUserId, PARTICIPANT_STATUS_REJECTED);
     if (active) {
       eventMapper.decrementParticipantCount(event.getId());
     }
@@ -423,7 +471,7 @@ public class EventService {
 
   public List<EventParticipantDto> blockParticipant(String eventId, String participantUserId, String userId) {
     EventRow event = requireOwnedEvent(eventId, userId);
-    if ("paid".equals(event.getAttendanceMode())) {
+    if (ATTENDANCE_MODE_PAID.equals(event.getAttendanceMode())) {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "Paid events do not support event-level blocking.");
     }
     if (participantUserId.equals(userId)) {
@@ -431,13 +479,13 @@ public class EventService {
     }
 
     boolean active = eventMapper.findParticipantsByEventId(eventId).stream()
-        .anyMatch((participant) ->
+        .anyMatch(participant ->
             participantUserId.equals(participant.getUserId())
-                && ("joined".equals(participant.getStatus())
-                    || "approved".equals(participant.getStatus())
-                    || "waitlisted".equals(participant.getStatus())));
+                && (PARTICIPANT_STATUS_JOINED.equals(participant.getStatus())
+                    || PARTICIPANT_STATUS_APPROVED.equals(participant.getStatus())
+                    || PARTICIPANT_STATUS_WAITLISTED.equals(participant.getStatus())));
     eventMapper.blockUser(eventId, participantUserId, userId);
-    eventMapper.updateParticipantStatus(eventId, participantUserId, "rejected");
+    eventMapper.updateParticipantStatus(eventId, participantUserId, PARTICIPANT_STATUS_REJECTED);
     if (active) {
       eventMapper.decrementParticipantCount(event.getId());
     }
@@ -505,7 +553,7 @@ public class EventService {
     }
 
     Map<String, List<EventMediaDto>> mediaByEventId = loadMediaByEventIds(rows);
-    return rows.stream().map((row) -> toDto(row, mediaByEventId.get(row.getId()))).toList();
+    return rows.stream().map(row -> toDto(row, mediaByEventId.get(row.getId()))).toList();
   }
 
   private EventMediaDto toMediaDto(EventMediaRow row) {
@@ -517,7 +565,7 @@ public class EventService {
     Map<String, List<EventMediaDto>> mediaByEventId = new HashMap<>();
 
     for (EventMediaRow mediaRow : eventMapper.findMediaByEventIds(eventIds)) {
-      mediaByEventId.computeIfAbsent(mediaRow.getEventId(), (ignored) -> new java.util.ArrayList<>()).add(toMediaDto(mediaRow));
+      mediaByEventId.computeIfAbsent(mediaRow.getEventId(), _ -> new java.util.ArrayList<>()).add(toMediaDto(mediaRow));
     }
 
     return mediaByEventId;
@@ -529,7 +577,7 @@ public class EventService {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "Event cannot be joined.");
     }
     if (requirePaidReceipt
-        && "paid".equals(row.getAttendanceMode())
+        && ATTENDANCE_MODE_PAID.equals(row.getAttendanceMode())
         && !isJoinedByMe(row.getUserParticipantStatus())
         && !paymentMapper.hasSucceededTicketOrder(eventId, userId)) {
       throw new ResponseStatusException(HttpStatus.PAYMENT_REQUIRED, "Paid event requires ticket checkout.");
@@ -575,11 +623,11 @@ public class EventService {
       return true;
     }
 
-    if ("blocked".equals(row.getUserParticipantStatus()) || "rejected".equals(row.getUserParticipantStatus())) {
+    if ("blocked".equals(row.getUserParticipantStatus()) || PARTICIPANT_STATUS_REJECTED.equals(row.getUserParticipantStatus())) {
       return false;
     }
 
-    if ("waitlist".equals(row.getAttendanceMode())) {
+    if (ATTENDANCE_MODE_WAITLIST.equals(row.getAttendanceMode())) {
       return true;
     }
 
@@ -587,7 +635,7 @@ public class EventService {
   }
 
   private boolean isJoinedByMe(String status) {
-    return "joined".equals(status) || "approved".equals(status) || "waitlisted".equals(status);
+    return PARTICIPANT_STATUS_JOINED.equals(status) || PARTICIPANT_STATUS_APPROVED.equals(status) || PARTICIPANT_STATUS_WAITLISTED.equals(status);
   }
 
   @Scheduled(fixedDelayString = "PT1H")
@@ -609,10 +657,10 @@ public class EventService {
     if (row.getCreatorUserId() == null || row.getCreatorUserId().equals(userId)) {
       return false;
     }
-    if (!"joined".equals(row.getUserParticipantStatus()) && !"approved".equals(row.getUserParticipantStatus())) {
+    if (!PARTICIPANT_STATUS_JOINED.equals(row.getUserParticipantStatus()) && !PARTICIPANT_STATUS_APPROVED.equals(row.getUserParticipantStatus())) {
       return false;
     }
-    if ("finished".equals(row.getStatus())) {
+    if (STATUS_FINISHED.equals(row.getStatus())) {
       return true;
     }
 
@@ -652,7 +700,7 @@ public class EventService {
       OffsetDateTime startAt = parseWhenIso(decoded.substring(0, separatorIndex), "cursor");
       String eventId = decoded.substring(separatorIndex + 1);
       return new FeedCursor(startAt, eventId);
-    } catch (IllegalArgumentException | ResponseStatusException exception) {
+    } catch (IllegalArgumentException | ResponseStatusException _) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid cursor format.");
     }
   }
@@ -687,7 +735,7 @@ public class EventService {
     requireLocalizedInput(request.title(), request.titleHr(), request.titleEn(), "title");
     requireLocalizedInput(request.where(), request.whereHr(), request.whereEn(), "where");
     requireLocalizedInput(request.about(), request.aboutHr(), request.aboutEn(), "about");
-    requireNonBlank(firstNonBlank(request.startAt(), request.whenISO()), "startAt");
+    requireNonBlank(firstNonBlank(request.startAt(), request.whenISO()), FIELD_START_AT);
 
     if (request.coordinates() == null) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "coordinates are required.");
@@ -731,7 +779,7 @@ public class EventService {
   private OffsetDateTime parseWhenIso(String whenIso, String fieldName) {
     try {
       return OffsetDateTime.parse(whenIso);
-    } catch (DateTimeParseException exception) {
+    } catch (DateTimeParseException _) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid " + fieldName + " format.");
     }
   }
@@ -750,12 +798,12 @@ public class EventService {
   }
 
   private String normalizeAttendanceMode(String attendanceMode) {
-    if ("waitlist".equalsIgnoreCase(attendanceMode)) {
-      return "waitlist";
+    if (ATTENDANCE_MODE_WAITLIST.equalsIgnoreCase(attendanceMode)) {
+      return ATTENDANCE_MODE_WAITLIST;
     }
 
-    if ("paid".equalsIgnoreCase(attendanceMode)) {
-      return "paid";
+    if (ATTENDANCE_MODE_PAID.equalsIgnoreCase(attendanceMode)) {
+      return ATTENDANCE_MODE_PAID;
     }
 
     return DEFAULT_ATTENDANCE_MODE;
@@ -767,10 +815,10 @@ public class EventService {
       return DEFAULT_STATUS;
     }
 
-    if ("draft".equalsIgnoreCase(normalized)
-        || "published".equalsIgnoreCase(normalized)
-        || "cancelled".equalsIgnoreCase(normalized)
-        || "finished".equalsIgnoreCase(normalized)) {
+    if (STATUS_DRAFT.equalsIgnoreCase(normalized)
+        || STATUS_PUBLISHED.equalsIgnoreCase(normalized)
+        || STATUS_CANCELLED.equalsIgnoreCase(normalized)
+        || STATUS_FINISHED.equalsIgnoreCase(normalized)) {
       return normalized.toLowerCase();
     }
 
@@ -779,11 +827,11 @@ public class EventService {
 
   private String normalizeMediaType(String mediaType) {
     String normalized = trimToNull(mediaType);
-    if (normalized == null || "image".equalsIgnoreCase(normalized)) {
-      return "image";
+    if (normalized == null || MEDIA_TYPE_IMAGE.equalsIgnoreCase(normalized)) {
+      return MEDIA_TYPE_IMAGE;
     }
-    if ("video".equalsIgnoreCase(normalized)) {
-      return "video";
+    if (MEDIA_TYPE_VIDEO.equalsIgnoreCase(normalized)) {
+      return MEDIA_TYPE_VIDEO;
     }
     throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported media type.");
   }
@@ -793,7 +841,7 @@ public class EventService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "capacity must be greater than 0.");
     }
 
-    if (!"paid".equals(attendanceMode)) {
+    if (!ATTENDANCE_MODE_PAID.equals(attendanceMode)) {
       return;
     }
 
@@ -808,7 +856,7 @@ public class EventService {
   }
 
   private void syncTicketProduct(EventRow row) {
-    if (!"paid".equals(row.getAttendanceMode())) {
+    if (!ATTENDANCE_MODE_PAID.equals(row.getAttendanceMode())) {
       return;
     }
 

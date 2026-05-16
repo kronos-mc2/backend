@@ -3,7 +3,6 @@ package hr.kronos.backend.api;
 import hr.kronos.backend.api.dto.NotificationPreferencesDto;
 import hr.kronos.backend.api.dto.RegisterPushTokenRequest;
 import hr.kronos.backend.api.dto.UpdateNotificationPreferencesRequest;
-import hr.kronos.backend.auth.AuthPrincipal;
 import hr.kronos.backend.notifications.NotificationService;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -28,29 +27,29 @@ public class NotificationController {
 
   @GetMapping("/preferences")
   public NotificationPreferencesDto getPreferences(Authentication authentication) {
-    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
-    return notificationService.getPreferences(principal.userId());
+    String userId = AuthenticatedUser.userId(authentication);
+    return notificationService.getPreferences(userId);
   }
 
   @PatchMapping("/preferences")
   public NotificationPreferencesDto updatePreferences(
       @RequestBody UpdateNotificationPreferencesRequest request,
       Authentication authentication) {
-    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
-    return notificationService.updatePreferences(request, principal.userId());
+    String userId = AuthenticatedUser.userId(authentication);
+    return notificationService.updatePreferences(request, userId);
   }
 
   @PostMapping("/push-tokens")
   @ResponseStatus(HttpStatus.NO_CONTENT)
   public void registerPushToken(@RequestBody RegisterPushTokenRequest request, Authentication authentication) {
-    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
-    notificationService.registerPushToken(request, principal.userId());
+    String userId = AuthenticatedUser.userId(authentication);
+    notificationService.registerPushToken(request, userId);
   }
 
   @DeleteMapping("/push-tokens")
   @ResponseStatus(HttpStatus.NO_CONTENT)
   public void deletePushToken(@RequestParam String token, Authentication authentication) {
-    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
-    notificationService.deletePushToken(token, principal.userId());
+    String userId = AuthenticatedUser.userId(authentication);
+    notificationService.deletePushToken(token, userId);
   }
 }

@@ -139,7 +139,7 @@
     WHERE id = #{orderId}
   </update>
 
-  <insert id="insertTicketTransaction">
+  <insert id="insertTicketTransaction" parameterType="hr.kronos.backend.payments.persistence.TicketTransactionRow">
     INSERT INTO transactions (
       id,
       user_id,

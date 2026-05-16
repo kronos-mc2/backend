@@ -142,7 +142,7 @@ public class NotificationService {
     }
 
     List<Map<String, Object>> payloads = recipients.stream()
-        .map((recipient) -> toExpoPushPayload(recipient, message))
+        .map(recipient -> toExpoPushPayload(recipient, message))
         .toList();
 
     try {
@@ -188,16 +188,9 @@ public class NotificationService {
 
       for (int index = 0; index < data.size() && index < recipients.size(); index++) {
         Object item = data.get(index);
-        if (!(item instanceof Map<?, ?> ticket)) {
-          continue;
-        }
-
-        Object details = ticket.get("details");
-        if (!(details instanceof Map<?, ?> detailMap)) {
-          continue;
-        }
-
-        if ("DeviceNotRegistered".equals(detailMap.get("error"))) {
+        if (item instanceof Map<?, ?> ticket
+            && ticket.get("details") instanceof Map<?, ?> detailMap
+            && "DeviceNotRegistered".equals(detailMap.get("error"))) {
           notificationMapper.disablePushTokenById(recipients.get(index).getTokenId());
         }
       }

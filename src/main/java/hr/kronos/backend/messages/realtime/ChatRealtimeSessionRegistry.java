@@ -14,6 +14,7 @@ public class ChatRealtimeSessionRegistry {
   public static final String USER_ID_ATTRIBUTE = "userId";
 
   private final ConcurrentMap<String, Set<WebSocketSession>> sessionsByUserId = new ConcurrentHashMap<>();
+  private final ConcurrentMap<WebSocketSession, Object> sessionLocks = new ConcurrentHashMap<>();
 
   public void register(WebSocketSession session) {
     String userId = getUserId(session);
@@ -22,6 +23,7 @@ public class ChatRealtimeSessionRegistry {
     }
 
     sessionsByUserId.computeIfAbsent(userId, ignored -> ConcurrentHashMap.newKeySet()).add(session);
+    sessionLocks.computeIfAbsent(session, _ -> new Object());
   }
 
   public void unregister(WebSocketSession session) {
@@ -36,6 +38,7 @@ public class ChatRealtimeSessionRegistry {
     }
 
     sessions.remove(session);
+    sessionLocks.remove(session);
     if (sessions.isEmpty()) {
       sessionsByUserId.remove(userId, sessions);
     }
@@ -62,10 +65,11 @@ public class ChatRealtimeSessionRegistry {
     }
 
     try {
-      synchronized (session) {
+      Object lock = sessionLocks.computeIfAbsent(session, _ -> new Object());
+      synchronized (lock) {
         session.sendMessage(message);
       }
-    } catch (IOException ignored) {
+    } catch (IOException _) {
       unregister(session);
     }
   }

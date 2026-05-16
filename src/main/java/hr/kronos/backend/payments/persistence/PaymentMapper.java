@@ -35,16 +35,7 @@ public interface PaymentMapper {
 
   int markOrderSucceeded(@Param("orderId") String orderId);
 
-  int insertTicketTransaction(
-      @Param("id") String id,
-      @Param("orderId") String orderId,
-      @Param("userId") String userId,
-      @Param("eventId") String eventId,
-      @Param("provider") String provider,
-      @Param("providerReference") String providerReference,
-      @Param("amount") BigDecimal amount,
-      @Param("currency") String currency,
-      @Param("description") String description);
+  int insertTicketTransaction(TicketTransactionRow transaction);
 
   TransactionRow findTransactionByOrderId(@Param("orderId") String orderId);
 }

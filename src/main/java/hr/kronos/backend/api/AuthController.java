@@ -1,6 +1,5 @@
 package hr.kronos.backend.api;
 
-import hr.kronos.backend.auth.AuthPrincipal;
 import hr.kronos.backend.auth.AuthService;
 import hr.kronos.backend.auth.dto.AuthResponse;
 import hr.kronos.backend.auth.dto.AuthUserDto;
@@ -45,7 +44,7 @@ public class AuthController {
 
   @GetMapping("/me")
   public AuthUserDto me(Authentication authentication) {
-    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
-    return authService.getUserProfile(principal.userId());
+    String userId = AuthenticatedUser.userId(authentication);
+    return authService.getUserProfile(userId);
   }
 }

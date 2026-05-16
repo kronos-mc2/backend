@@ -3,7 +3,6 @@ package hr.kronos.backend.api;
 import hr.kronos.backend.api.dto.ProfileActivityDto;
 import hr.kronos.backend.api.dto.TransactionDto;
 import hr.kronos.backend.api.dto.UpdateProfileRequest;
-import hr.kronos.backend.auth.AuthPrincipal;
 import hr.kronos.backend.auth.dto.AuthUserDto;
 import hr.kronos.backend.profile.ProfileService;
 import java.util.List;
@@ -25,19 +24,19 @@ public class UserController {
 
   @PatchMapping("/profile")
   public AuthUserDto updateProfile(@RequestBody UpdateProfileRequest request, Authentication authentication) {
-    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
-    return profileService.updateProfile(request, principal.userId());
+    String userId = AuthenticatedUser.userId(authentication);
+    return profileService.updateProfile(request, userId);
   }
 
   @GetMapping("/activity")
   public ProfileActivityDto getActivity(Authentication authentication) {
-    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
-    return profileService.getActivity(principal.userId());
+    String userId = AuthenticatedUser.userId(authentication);
+    return profileService.getActivity(userId);
   }
 
   @GetMapping("/transactions")
   public List<TransactionDto> getTransactions(Authentication authentication) {
-    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
-    return profileService.getTransactions(principal.userId());
+    String userId = AuthenticatedUser.userId(authentication);
+    return profileService.getTransactions(userId);
   }
 }

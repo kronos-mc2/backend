@@ -174,7 +174,7 @@ public class LocationSearchService {
       return DEFAULT_LIMIT;
     }
 
-    return Math.max(1, Math.min(MAX_LIMIT, requestedLimit));
+    return Math.clamp(requestedLimit, 1, MAX_LIMIT);
   }
 
   private String normalizeLocale(String locale) {
@@ -209,7 +209,7 @@ public class LocationSearchService {
 
     int deleteCount = cache.size() - MAX_CACHE_ENTRIES;
     cache.entrySet().stream()
-        .sorted(Comparator.comparing((entry) -> entry.getValue().createdAt()))
+        .sorted(Comparator.comparing(entry -> entry.getValue().createdAt()))
         .limit(deleteCount)
         .map(Map.Entry::getKey)
         .toList()
@@ -250,7 +250,7 @@ public class LocationSearchService {
 
     try {
       return new BigDecimal(text);
-    } catch (NumberFormatException exception) {
+    } catch (NumberFormatException _) {
       return null;
     }
   }

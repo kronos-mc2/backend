@@ -47,7 +47,7 @@ public class ChatWebSocketAuthInterceptor implements HandshakeInterceptor {
           "principal",
           new AuthPrincipal(userId, claims.get("email", String.class), claims.get("name", String.class)));
       return true;
-    } catch (Exception ignored) {
+    } catch (Exception _) {
       response.setStatusCode(HttpStatus.UNAUTHORIZED);
       return false;
     }
@@ -55,7 +55,9 @@ public class ChatWebSocketAuthInterceptor implements HandshakeInterceptor {
 
   @Override
   public void afterHandshake(
-      ServerHttpRequest request, ServerHttpResponse response, WebSocketHandler wsHandler, Exception exception) {}
+      ServerHttpRequest request, ServerHttpResponse response, WebSocketHandler wsHandler, Exception exception) {
+    // No cleanup is needed here; session lifecycle is managed by ChatMessagesWebSocketHandler.
+  }
 
   private String resolveBearerToken(ServerHttpRequest request) {
     List<String> authorizationHeaders = request.getHeaders().get(HttpHeaders.AUTHORIZATION);

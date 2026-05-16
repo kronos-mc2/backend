@@ -3,7 +3,6 @@ package hr.kronos.backend.api;
 import hr.kronos.backend.api.dto.ConfirmTicketCheckoutRequest;
 import hr.kronos.backend.api.dto.TicketCheckoutDto;
 import hr.kronos.backend.api.dto.TicketCheckoutResultDto;
-import hr.kronos.backend.auth.AuthPrincipal;
 import hr.kronos.backend.payments.PaymentService;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -23,8 +22,8 @@ public class PaymentController {
 
   @PostMapping("/events/{eventId}/ticket-checkout")
   public TicketCheckoutDto createTicketCheckout(@PathVariable String eventId, Authentication authentication) {
-    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
-    return paymentService.createTicketCheckout(eventId, principal.userId());
+    String userId = AuthenticatedUser.userId(authentication);
+    return paymentService.createTicketCheckout(eventId, userId);
   }
 
   @PostMapping("/ticket-orders/{orderId}/confirm")
@@ -32,7 +31,7 @@ public class PaymentController {
       @PathVariable String orderId,
       @RequestBody(required = false) ConfirmTicketCheckoutRequest request,
       Authentication authentication) {
-    AuthPrincipal principal = (AuthPrincipal) authentication.getPrincipal();
-    return paymentService.confirmTicketCheckout(orderId, request, principal.userId());
+    String userId = AuthenticatedUser.userId(authentication);
+    return paymentService.confirmTicketCheckout(orderId, request, userId);
   }
 }

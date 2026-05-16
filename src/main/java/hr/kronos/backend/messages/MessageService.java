@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -46,6 +47,11 @@ public class MessageService {
   private static final int MAX_MESSAGE_LENGTH = 4000;
   private static final int MAX_POLL_OPTIONS = 8;
   private static final int MIN_PEOPLE_SEARCH_LENGTH = 2;
+  private static final String ROOM_TYPE_DIRECT = "direct";
+  private static final String ROOM_TYPE_EVENT = "event";
+  private static final String ROOM_TYPE_GROUP = "group";
+  private static final String MEMBER_ROLE_MEMBER = "member";
+  private static final String MEMBER_ROLE_OWNER = "owner";
   private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
 
   private final MessageMapper messageMapper;
@@ -73,7 +79,7 @@ public class MessageService {
 
   public List<ChatRoomDto> getChatRooms(String userId, String query) {
     return messageMapper.findRoomsForUser(userId, trimToNull(query)).stream()
-        .map((room) -> toRoomDto(room, null))
+        .map(room -> toRoomDto(room, null))
         .toList();
   }
 
@@ -81,7 +87,7 @@ public class MessageService {
     ChatRoomRow room = requireRoom(roomId, userId);
     List<ChatMemberDto> members = messageMapper.findMembersForRoom(roomId).stream().map(this::toMemberDto).toList();
     List<ChatMessageDto> messages = messageMapper.findMessagesForRoom(roomId, userId).stream()
-        .map((message) -> toMessageDto(message, userId))
+        .map(message -> toMessageDto(message, userId))
         .toList();
 
     if (!messages.isEmpty()) {
@@ -94,7 +100,7 @@ public class MessageService {
   public List<ChatMessageDto> getMessages(String roomId, String userId) {
     requireRoom(roomId, userId);
     List<ChatMessageDto> messages = messageMapper.findMessagesForRoom(roomId, userId).stream()
-        .map((message) -> toMessageDto(message, userId))
+        .map(message -> toMessageDto(message, userId))
         .toList();
 
     if (!messages.isEmpty()) {
@@ -115,52 +121,60 @@ public class MessageService {
 
   public ChatRoomDto createChatRoom(CreateChatRoomRequest request, String userId) {
     String type = normalizeRoomType(request.type());
-    if ("event".equals(type)) {
+    if (ROOM_TYPE_EVENT.equals(type)) {
       if (request.eventId() == null || request.eventId().isBlank()) {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "eventId is required.");
       }
       return getOrCreateEventChatRoom(request.eventId(), userId);
     }
 
-    if ("direct".equals(type)) {
-      String memberUserId = trimToNull(request.memberUserId());
-      if (memberUserId == null) {
-        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "memberUserId is required.");
-      }
-      if (memberUserId.equals(userId)) {
-        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot create a direct chat with yourself.");
-      }
-
-      UserRow targetUser = authMapper.findById(memberUserId);
-      if (targetUser == null) {
-        throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found.");
-      }
-
-      ChatRoomRow existing = messageMapper.findDirectRoomForUsers(userId, memberUserId);
-      if (existing != null) {
-        return toRoomDto(existing, messageMapper.findMembersForRoom(existing.getId()).stream().map(this::toMemberDto).toList());
-      }
-
-      ChatRoomRow room = newRoom("direct", null, null, false, userId);
-      messageMapper.insertRoom(room);
-      messageMapper.insertMember(room.getId(), userId, "owner");
-      messageMapper.insertMember(room.getId(), memberUserId, "member");
-      ChatRoomDto roomDto = getChatRoom(room.getId(), userId).room();
-      publishRoomUpdated(room.getId());
-      return roomDto;
+    if (ROOM_TYPE_DIRECT.equals(type)) {
+      return createDirectChatRoom(request, userId);
     }
 
+    return createGroupChatRoom(request, userId);
+  }
+
+  private ChatRoomDto createDirectChatRoom(CreateChatRoomRequest request, String userId) {
+    String memberUserId = trimToNull(request.memberUserId());
+    if (memberUserId == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "memberUserId is required.");
+    }
+    if (memberUserId.equals(userId)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot create a direct chat with yourself.");
+    }
+
+    UserRow targetUser = authMapper.findById(memberUserId);
+    if (targetUser == null) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found.");
+    }
+
+    ChatRoomRow existing = messageMapper.findDirectRoomForUsers(userId, memberUserId);
+    if (existing != null) {
+      return toRoomDto(existing, messageMapper.findMembersForRoom(existing.getId()).stream().map(this::toMemberDto).toList());
+    }
+
+    ChatRoomRow room = newRoom(ROOM_TYPE_DIRECT, null, null, false, userId);
+    messageMapper.insertRoom(room);
+    messageMapper.insertMember(room.getId(), userId, MEMBER_ROLE_OWNER);
+    messageMapper.insertMember(room.getId(), memberUserId, MEMBER_ROLE_MEMBER);
+    ChatRoomDto roomDto = getChatRoom(room.getId(), userId).room();
+    publishRoomUpdated(room.getId());
+    return roomDto;
+  }
+
+  private ChatRoomDto createGroupChatRoom(CreateChatRoomRequest request, String userId) {
     String title = trimToNull(request.title());
     if (title == null) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "title is required.");
     }
 
-    ChatRoomRow room = newRoom("group", title, null, false, userId);
+    ChatRoomRow room = newRoom(ROOM_TYPE_GROUP, title, null, false, userId);
     messageMapper.insertRoom(room);
-    messageMapper.insertMember(room.getId(), userId, "owner");
+    messageMapper.insertMember(room.getId(), userId, MEMBER_ROLE_OWNER);
     for (String memberUserId : uniqueMemberIds(request.memberUserIds(), userId)) {
       if (authMapper.findById(memberUserId) != null) {
-        messageMapper.insertMember(room.getId(), memberUserId, "member");
+        messageMapper.insertMember(room.getId(), memberUserId, MEMBER_ROLE_MEMBER);
       }
     }
     ChatRoomDto roomDto = getChatRoom(room.getId(), userId).room();
@@ -176,17 +190,23 @@ public class MessageService {
 
     ChatRoomRow existing = messageMapper.findEventRoomForUser(eventId, userId);
     if (existing != null) {
-      ensureMember(existing.getId(), userId, event.getCreatorUserId() != null && event.getCreatorUserId().equals(userId) ? "owner" : "member");
+      ensureMember(
+          existing.getId(),
+          userId,
+          event.getCreatorUserId() != null && event.getCreatorUserId().equals(userId)
+              ? MEMBER_ROLE_OWNER
+              : MEMBER_ROLE_MEMBER);
       ChatRoomRow refreshed = requireRoom(existing.getId(), userId);
       return toRoomDto(refreshed, messageMapper.findMembersForRoom(refreshed.getId()).stream().map(this::toMemberDto).toList());
     }
 
     boolean creatorIsCurrentUser = event.getCreatorUserId() != null && event.getCreatorUserId().equals(userId);
-    ChatRoomRow room = newRoom("event", event.getTitleHr(), eventId, false, userId);
+    ChatRoomRow room = newRoom(ROOM_TYPE_EVENT, event.getTitleHr(), eventId, false, userId);
     messageMapper.insertRoom(room);
-    messageMapper.insertMember(room.getId(), userId, creatorIsCurrentUser ? "owner" : "member");
+    messageMapper.insertMember(
+        room.getId(), userId, creatorIsCurrentUser ? MEMBER_ROLE_OWNER : MEMBER_ROLE_MEMBER);
     if (event.getCreatorUserId() != null && !event.getCreatorUserId().equals(userId)) {
-      messageMapper.insertMember(room.getId(), event.getCreatorUserId(), "owner");
+      messageMapper.insertMember(room.getId(), event.getCreatorUserId(), MEMBER_ROLE_OWNER);
     }
     ChatRoomDto roomDto = getChatRoom(room.getId(), userId).room();
     publishRoomUpdated(room.getId());
@@ -209,7 +229,7 @@ public class MessageService {
   public ChatRoomDto updateChatRoom(String roomId, Boolean adminOnly, String userId) {
     ChatRoomRow room = requireRoom(roomId, userId);
     requireAdmin(room, userId);
-    if (adminOnly != null && !"direct".equals(room.getRoomType())) {
+    if (adminOnly != null && !ROOM_TYPE_DIRECT.equals(room.getRoomType())) {
       messageMapper.updateRoomAdminOnly(roomId, adminOnly);
     }
     ChatRoomDto roomDto = getChatRoom(roomId, userId).room();
@@ -367,7 +387,7 @@ public class MessageService {
   }
 
   private void requireCanWrite(ChatRoomRow room, String userId) {
-    if ("direct".equals(room.getRoomType())) {
+    if (ROOM_TYPE_DIRECT.equals(room.getRoomType())) {
       return;
     }
     if (!Boolean.TRUE.equals(room.getAdminOnly())) {
@@ -378,7 +398,7 @@ public class MessageService {
 
   private void requireAdmin(ChatRoomRow room, String userId) {
     ChatMemberRow member = messageMapper.findMember(room.getId(), userId);
-    if (member == null || (!"owner".equals(member.getRole()) && !"admin".equals(member.getRole()))) {
+    if (member == null || (!MEMBER_ROLE_OWNER.equals(member.getRole()) && !"admin".equals(member.getRole()))) {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only admins can do this.");
     }
   }
@@ -514,7 +534,7 @@ public class MessageService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "options are required.");
     }
 
-    List<String> options = rawOptions.stream().map(this::trimToNull).filter((value) -> value != null).distinct().toList();
+    List<String> options = rawOptions.stream().map(this::trimToNull).filter(Objects::nonNull).distinct().toList();
     if (options.size() < 2) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Poll requires at least two options.");
     }
@@ -528,7 +548,7 @@ public class MessageService {
     if (rawOptionIds == null || rawOptionIds.isEmpty()) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "optionIds are required.");
     }
-    return rawOptionIds.stream().map(this::trimToNull).filter((value) -> value != null).distinct().toList();
+    return rawOptionIds.stream().map(this::trimToNull).filter(Objects::nonNull).distinct().toList();
   }
 
   private List<String> uniqueMemberIds(List<String> memberUserIds, String currentUserId) {
@@ -549,9 +569,9 @@ public class MessageService {
   private String normalizeRoomType(String type) {
     String normalized = trimToNull(type);
     if (normalized == null) {
-      return "direct";
+      return ROOM_TYPE_DIRECT;
     }
-    if (!"direct".equals(normalized) && !"group".equals(normalized) && !"event".equals(normalized)) {
+    if (!ROOM_TYPE_DIRECT.equals(normalized) && !ROOM_TYPE_GROUP.equals(normalized) && !ROOM_TYPE_EVENT.equals(normalized)) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported room type.");
     }
     return normalized;

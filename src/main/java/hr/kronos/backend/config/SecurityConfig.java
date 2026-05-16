@@ -19,19 +19,19 @@ public class SecurityConfig {
   }
 
   @Bean
-  SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+  SecurityFilterChain securityFilterChain(HttpSecurity http) {
     http
-        .csrf((csrf) -> csrf.disable())
+        .csrf(csrf -> csrf.disable())
         .sessionManagement(
-            (sessionManagement) ->
+            sessionManagement ->
                 sessionManagement.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .exceptionHandling(
-            (exceptionHandling) ->
+            exceptionHandling ->
                 exceptionHandling.authenticationEntryPoint(
                     (request, response, authException) ->
                         response.sendError(HttpStatus.UNAUTHORIZED.value(), "Unauthorized")))
         .authorizeHttpRequests(
-            (authorize) ->
+            authorize ->
                 authorize
                     .requestMatchers(
                         "/api/auth/register", "/api/auth/login", "/api/auth/google", "/api/auth/apple")

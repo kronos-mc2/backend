@@ -54,7 +54,7 @@ public class JwtService {
     byte[] bytes;
     try {
       bytes = Decoders.BASE64.decode(jwtSecret);
-    } catch (IllegalArgumentException | DecodingException ignored) {
+    } catch (IllegalArgumentException | DecodingException _) {
       bytes = jwtSecret.getBytes(StandardCharsets.UTF_8);
     }
 

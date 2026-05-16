@@ -28,7 +28,7 @@ public class GoogleIdTokenVerifierService {
     Set<String> audiences =
         Arrays.stream(googleClientIds.split(","))
             .map(String::trim)
-            .filter((value) -> !value.isBlank())
+            .filter(value -> !value.isBlank())
             .collect(Collectors.toSet());
 
     this.enabled = !audiences.isEmpty();
@@ -67,7 +67,7 @@ public class GoogleIdTokenVerifierService {
 
       String name = jwt.getClaimAsString("name");
       return new SocialIdentity(email, name);
-    } catch (JwtException exception) {
+    } catch (JwtException _) {
       throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid Google token.");
     }
   }

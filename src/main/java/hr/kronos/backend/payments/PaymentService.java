@@ -11,6 +11,7 @@ import hr.kronos.backend.events.persistence.EventRow;
 import hr.kronos.backend.payments.persistence.PaymentMapper;
 import hr.kronos.backend.payments.persistence.TicketOrderRow;
 import hr.kronos.backend.payments.persistence.TicketProductRow;
+import hr.kronos.backend.payments.persistence.TicketTransactionRow;
 import hr.kronos.backend.profile.persistence.TransactionRow;
 import java.time.format.DateTimeFormatter;
 import java.util.UUID;
@@ -23,6 +24,8 @@ import org.springframework.web.server.ResponseStatusException;
 public class PaymentService {
   private static final String ORDER_PENDING = "pending";
   private static final String ORDER_SUCCEEDED = "succeeded";
+  private static final String EVENT_ATTENDANCE_PAID = "paid";
+  private static final String EVENT_STATUS_PUBLISHED = "published";
 
   private final EventMapper eventMapper;
   private final EventService eventService;
@@ -41,7 +44,7 @@ public class PaymentService {
   }
 
   public void syncTicketProductForEvent(EventRow event) {
-    if (!"paid".equals(event.getAttendanceMode())) {
+    if (!EVENT_ATTENDANCE_PAID.equals(event.getAttendanceMode())) {
       return;
     }
 
@@ -126,26 +129,31 @@ public class PaymentService {
     requirePaidJoinableEvent(order.getEventId(), userId);
     PaymentProvider.ProviderPaymentResult result =
         confirmProviderPayment(order.getProviderPaymentId(), request == null ? null : request.confirmationToken());
-    if (!"succeeded".equals(result.status())) {
+    if (!ORDER_SUCCEEDED.equals(result.status())) {
       throw new ResponseStatusException(HttpStatus.PAYMENT_REQUIRED, "Payment was not completed.");
     }
 
     paymentMapper.markPaymentSucceeded(orderId, order.getProviderPaymentId());
     paymentMapper.markOrderSucceeded(orderId);
-    paymentMapper.insertTicketTransaction(
-        "txn-" + UUID.randomUUID().toString().replace("-", "").substring(0, 18),
-        orderId,
-        userId,
-        order.getEventId(),
-        order.getProvider(),
-        order.getProviderPaymentId(),
-        order.getAmount(),
-        order.getCurrency(),
-        "Event ticket");
+    paymentMapper.insertTicketTransaction(newTicketTransaction(order, orderId, userId));
     AppEventDto event = eventService.joinEventAfterPayment(order.getEventId(), userId);
     TicketOrderRow updatedOrder = paymentMapper.findOrderForUser(orderId, userId);
     TransactionRow transaction = paymentMapper.findTransactionByOrderId(orderId);
     return new TicketCheckoutResultDto(toCheckoutDto(updatedOrder), event, toTransactionDto(transaction));
+  }
+
+  private TicketTransactionRow newTicketTransaction(TicketOrderRow order, String orderId, String userId) {
+    TicketTransactionRow transaction = new TicketTransactionRow();
+    transaction.setId("txn-" + UUID.randomUUID().toString().replace("-", "").substring(0, 18));
+    transaction.setOrderId(orderId);
+    transaction.setUserId(userId);
+    transaction.setEventId(order.getEventId());
+    transaction.setProvider(order.getProvider());
+    transaction.setProviderReference(order.getProviderPaymentId());
+    transaction.setAmount(order.getAmount());
+    transaction.setCurrency(order.getCurrency());
+    transaction.setDescription("Event ticket");
+    return transaction;
   }
 
   private EventRow requirePaidJoinableEvent(String eventId, String userId) {
@@ -153,10 +161,10 @@ public class PaymentService {
     if (event == null) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found.");
     }
-    if (!"paid".equals(event.getAttendanceMode())) {
+    if (!EVENT_ATTENDANCE_PAID.equals(event.getAttendanceMode())) {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "Event does not require ticket checkout.");
     }
-    if (!"published".equals(event.getStatus())) {
+    if (!EVENT_STATUS_PUBLISHED.equals(event.getStatus())) {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "Event cannot be joined.");
     }
     if (isJoined(event.getUserParticipantStatus())) {

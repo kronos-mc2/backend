@@ -16,7 +16,7 @@ public class SocialService {
 
   public List<FriendDto> getFriends() {
     return socialMapper.findFriends().stream()
-        .map((row) -> new FriendDto(row.getId(), row.getName(), new LocalizedTextDto(row.getStatusHr(), row.getStatusEn())))
+        .map(row -> new FriendDto(row.getId(), row.getName(), new LocalizedTextDto(row.getStatusHr(), row.getStatusEn())))
         .toList();
   }
 }

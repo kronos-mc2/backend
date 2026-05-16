@@ -14,10 +14,13 @@ import org.springframework.context.annotation.Profile;
 @Configuration
 @Profile("dev")
 public class DevEventSeedConfig {
+  private static final String MEDIA_TYPE_IMAGE = "image";
+  private static final String MEDIA_TYPE_VIDEO = "video";
+  private static final String PRIMARY_MEDIA_SUFFIX = "-media-1";
 
   @Bean
   ApplicationRunner seedPublicEventsForDev(EventMapper eventMapper) {
-    return (args) -> {
+    return args -> {
       if (eventMapper.countAllEvents() > 0) {
         return;
       }
@@ -25,47 +28,50 @@ public class DevEventSeedConfig {
       List<EventRow> devEvents =
           List.of(
               buildEvent(
-                  "dev-1",
-                  "Afterwork kod Zrinjevca",
-                  "Afterwork at Zrinjevac",
-                  "Zrinjevac, Zagreb",
-                  "Zrinjevac, Zagreb",
-                  "Lezerno druzenje nakon posla.",
-                  "Casual meetup after work.",
-                  "2026-05-05T18:00:00Z",
-                  "nearby",
-                  45.8115,
-                  15.9798,
-                  "public",
-                  24),
+                  new DevEventSeed(
+                      "dev-1",
+                      "Afterwork kod Zrinjevca",
+                      "Afterwork at Zrinjevac",
+                      "Zrinjevac, Zagreb",
+                      "Zrinjevac, Zagreb",
+                      "Lezerno druzenje nakon posla.",
+                      "Casual meetup after work.",
+                      "2026-05-05T18:00:00Z",
+                      "nearby",
+                      45.8115,
+                      15.9798,
+                      "public",
+                      24)),
               buildEvent(
-                  "dev-2",
-                  "Sunset DJ Session",
-                  "Sunset DJ Session",
-                  "Jarun, Zagreb",
-                  "Jarun, Zagreb",
-                  "Open-air DJ i chill zona.",
-                  "Open-air DJ with a chill zone.",
-                  "2026-05-12T19:30:00Z",
-                  "joined",
-                  45.7851,
-                  15.9294,
-                  "public",
-                  61),
+                  new DevEventSeed(
+                      "dev-2",
+                      "Sunset DJ Session",
+                      "Sunset DJ Session",
+                      "Jarun, Zagreb",
+                      "Jarun, Zagreb",
+                      "Open-air DJ i chill zona.",
+                      "Open-air DJ with a chill zone.",
+                      "2026-05-12T19:30:00Z",
+                      "joined",
+                      45.7851,
+                      15.9294,
+                      "public",
+                      61)),
               buildEvent(
-                  "dev-3",
-                  "Private rooftop test",
-                  "Private rooftop test",
-                  "Centar, Zagreb",
-                  "Downtown, Zagreb",
-                  "Privatni event za test filtriranja.",
-                  "Private event for visibility filter testing.",
-                  "2026-05-20T20:00:00Z",
-                  "created",
-                  45.8144,
-                  15.9780,
-                  "friends",
-                  12));
+                  new DevEventSeed(
+                      "dev-3",
+                      "Private rooftop test",
+                      "Private rooftop test",
+                      "Centar, Zagreb",
+                      "Downtown, Zagreb",
+                      "Privatni event za test filtriranja.",
+                      "Private event for visibility filter testing.",
+                      "2026-05-20T20:00:00Z",
+                      "created",
+                      45.8144,
+                      15.9780,
+                      "friends",
+                      12)));
 
       for (EventRow event : devEvents) {
         eventMapper.insert(event);
@@ -76,41 +82,28 @@ public class DevEventSeedConfig {
     };
   }
 
-  private EventRow buildEvent(
-      String id,
-      String titleHr,
-      String titleEn,
-      String whereHr,
-      String whereEn,
-      String aboutHr,
-      String aboutEn,
-      String whenIso,
-      String eventType,
-      double latitude,
-      double longitude,
-      String visibility,
-      int participants) {
+  private EventRow buildEvent(DevEventSeed seed) {
     EventRow row = new EventRow();
-    row.setId(id);
-    row.setTitleHr(titleHr);
-    row.setTitleEn(titleEn);
-    row.setWhereHr(whereHr);
-    row.setWhereEn(whereEn);
-    row.setAddress(whereHr);
-    row.setAboutHr(aboutHr);
-    row.setAboutEn(aboutEn);
-    OffsetDateTime startAt = OffsetDateTime.parse(whenIso);
+    row.setId(seed.id());
+    row.setTitleHr(seed.titleHr());
+    row.setTitleEn(seed.titleEn());
+    row.setWhereHr(seed.whereHr());
+    row.setWhereEn(seed.whereEn());
+    row.setAddress(seed.whereHr());
+    row.setAboutHr(seed.aboutHr());
+    row.setAboutEn(seed.aboutEn());
+    OffsetDateTime startAt = OffsetDateTime.parse(seed.whenIso());
     row.setWhenIso(startAt);
     row.setStartAt(startAt);
-    row.setEventType(eventType);
-    row.setLatitude(latitude);
-    row.setLongitude(longitude);
-    row.setVisibility(visibility);
+    row.setEventType(seed.eventType());
+    row.setLatitude(seed.latitude());
+    row.setLongitude(seed.longitude());
+    row.setVisibility(seed.visibility());
     row.setAttendanceMode("open");
     row.setStatus("published");
     row.setOrganizerRatingAverage(BigDecimal.ZERO);
     row.setOrganizerRatingCount(0);
-    row.setParticipantCount(participants);
+    row.setParticipantCount(seed.participants());
     return row;
   }
 
@@ -118,39 +111,39 @@ public class DevEventSeedConfig {
     return switch (eventId) {
       case "dev-1" -> List.of(
           media(
-              eventId + "-media-1",
+              eventId + PRIMARY_MEDIA_SUFFIX,
               eventId,
-              "video",
+              MEDIA_TYPE_VIDEO,
               "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
               "https://images.unsplash.com/photo-1501386761578-eac5c94b800a?auto=format&fit=crop&w=1200&q=80",
               0),
           media(
               eventId + "-media-2",
               eventId,
-              "image",
+              MEDIA_TYPE_IMAGE,
               "https://images.unsplash.com/photo-1492684223066-81342ee5ff30?auto=format&fit=crop&w=1200&q=80",
               null,
               1));
       case "dev-2" -> List.of(
           media(
-              eventId + "-media-1",
+              eventId + PRIMARY_MEDIA_SUFFIX,
               eventId,
-              "video",
+              MEDIA_TYPE_VIDEO,
               "https://storage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
               "https://images.unsplash.com/photo-1506157786151-b8491531f063?auto=format&fit=crop&w=1200&q=80",
               0),
           media(
               eventId + "-media-2",
               eventId,
-              "image",
+              MEDIA_TYPE_IMAGE,
               "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=1200&q=80",
               null,
               1));
       case "dev-3" -> List.of(
           media(
-              eventId + "-media-1",
+              eventId + PRIMARY_MEDIA_SUFFIX,
               eventId,
-              "image",
+              MEDIA_TYPE_IMAGE,
               "https://images.unsplash.com/photo-1521334884684-d80222895322?auto=format&fit=crop&w=1200&q=80",
               null,
               0));
@@ -169,4 +162,19 @@ public class DevEventSeedConfig {
     row.setSortOrder(sortOrder);
     return row;
   }
+
+  private record DevEventSeed(
+      String id,
+      String titleHr,
+      String titleEn,
+      String whereHr,
+      String whereEn,
+      String aboutHr,
+      String aboutEn,
+      String whenIso,
+      String eventType,
+      double latitude,
+      double longitude,
+      String visibility,
+      int participants) {}
 }

@@ -64,7 +64,7 @@ public class AppleIdTokenVerifierService {
       }
 
       return new SocialIdentity(email, jwt.getClaimAsString("name"));
-    } catch (JwtException exception) {
+    } catch (JwtException _) {
       throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid Apple token.");
     }
   }
