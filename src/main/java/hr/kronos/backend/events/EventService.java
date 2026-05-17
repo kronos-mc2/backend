@@ -2,11 +2,13 @@ package hr.kronos.backend.events;
 
 import hr.kronos.backend.api.dto.AppEventDto;
 import hr.kronos.backend.api.dto.CoordinatesDto;
+import hr.kronos.backend.api.dto.CreateFeedPreferenceRequest;
 import hr.kronos.backend.api.dto.CreateEventRequest;
 import hr.kronos.backend.api.dto.EventMediaRequest;
 import hr.kronos.backend.api.dto.EventMediaDto;
 import hr.kronos.backend.api.dto.EventParticipantDto;
 import hr.kronos.backend.api.dto.EventRatingRequest;
+import hr.kronos.backend.api.dto.FeedPreferenceDto;
 import hr.kronos.backend.api.dto.FeedPageDto;
 import hr.kronos.backend.api.dto.LocalizedTextDto;
 import hr.kronos.backend.api.dto.OrganizerRatingRequest;
@@ -15,6 +17,7 @@ import hr.kronos.backend.events.persistence.EventMapper;
 import hr.kronos.backend.events.persistence.EventMediaRow;
 import hr.kronos.backend.events.persistence.EventParticipantRow;
 import hr.kronos.backend.events.persistence.EventRow;
+import hr.kronos.backend.events.persistence.FeedPreferenceRow;
 import hr.kronos.backend.messages.MessageService;
 import hr.kronos.backend.payments.persistence.PaymentMapper;
 import java.math.BigDecimal;
@@ -22,9 +25,13 @@ import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.Base64;
+import java.util.ArrayList;
+import java.util.Locale;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -56,6 +63,8 @@ public class EventService {
   private static final String STATUS_FINISHED = "finished";
   private static final int DEFAULT_FEED_LIMIT = 5;
   private static final int MAX_FEED_LIMIT = 10;
+  private static final int MAX_EVENT_TAGS = 5;
+  private static final int MAX_EVENT_TAG_LENGTH = 40;
 
   private final EventMapper eventMapper;
   private final MessageService messageService;
@@ -130,6 +139,33 @@ public class EventService {
 
   public List<AppEventDto> getLikedEvents(String userId) {
     return toDtosWithMedia(eventMapper.findLikedByUser(userId));
+  }
+
+  public List<FeedPreferenceDto> getFeedPreferences(String userId) {
+    return eventMapper.findFeedPreferences(userId).stream().map(this::toFeedPreferenceDto).toList();
+  }
+
+  public FeedPreferenceDto createFeedPreference(CreateFeedPreferenceRequest request, String userId) {
+    if (request == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Request body is required.");
+    }
+
+    String type = normalizeFeedPreferenceType(request.type());
+    String targetId = normalizeFeedPreferenceTarget(type, request.targetId());
+    String label = firstNonBlank(request.label(), targetId);
+    String id = "feed-block-" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+    eventMapper.insertFeedPreference(id, userId, type, targetId, trimLabel(label, 180));
+    return getFeedPreferences(userId).stream()
+        .filter(preference -> preference.type().equals(type) && preference.targetId().equals(targetId))
+        .findFirst()
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Preference not found."));
+  }
+
+  public void deleteFeedPreference(String preferenceId, String userId) {
+    if (trimToNull(preferenceId) == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "preferenceId is required.");
+    }
+    eventMapper.deleteFeedPreference(preferenceId, userId);
   }
 
   public List<AppEventDto> getUpcomingCreatedByUser(String targetUserId, String userId) {
@@ -259,6 +295,7 @@ public class EventService {
     String visibility = normalizeVisibility(request.visibility());
     String attendanceMode = normalizeAttendanceMode(request.attendanceMode());
     validateCommercialFields(attendanceMode, request.priceAmount(), request.priceCurrency(), request.capacity());
+    List<String> tags = normalizeTags(request.tags());
     LocalizedInput title = localizedInput(request.title(), request.titleHr(), request.titleEn());
     LocalizedInput where = localizedInput(request.where(), request.whereHr(), request.whereEn());
     LocalizedInput about = localizedInput(request.about(), request.aboutHr(), request.aboutEn());
@@ -302,9 +339,11 @@ public class EventService {
     row.setEntryInstructionsEn(entryInstructions == null ? null : entryInstructions.en());
 
     eventMapper.insert(row);
+    syncTags(row.getId(), tags);
     syncTicketProduct(row);
     eventMapper.upsertParticipant(row.getId(), creatorUserId, PARTICIPANT_STATUS_JOINED);
     row.setUserParticipantStatus(PARTICIPANT_STATUS_JOINED);
+    row.setTagsCsv(String.join(",", tags));
     return toDto(row);
   }
 
@@ -325,6 +364,7 @@ public class EventService {
     String priceCurrency = resolveUpdatedPriceCurrency(request, current, attendanceMode);
     Integer capacity = firstNonNull(request.capacity(), current.getCapacity());
     CoordinatesDto coordinates = resolveUpdatedCoordinates(request, current);
+    List<String> tags = request.tags() == null ? tagsFromRow(current) : normalizeTags(request.tags());
 
     validateCommercialFields(attendanceMode, priceAmount, priceCurrency, capacity);
     validateCoordinates(coordinates, "coordinates");
@@ -361,6 +401,7 @@ public class EventService {
     current.setStatus(normalizeStatus(firstNonBlank(request.status(), current.getStatus())));
 
     eventMapper.update(current);
+    syncTags(current.getId(), tags);
     syncTicketProduct(current);
     return getEventById(eventId, userId);
   }
@@ -544,7 +585,17 @@ public class EventService {
         isJoinedByMe(row.getUserParticipantStatus()),
         row.getUserParticipantStatus(),
         canJoin(row),
+        tagsFromRow(row),
         media == null || media.isEmpty() ? null : media);
+  }
+
+  private FeedPreferenceDto toFeedPreferenceDto(FeedPreferenceRow row) {
+    return new FeedPreferenceDto(
+        row.getId(),
+        row.getBlockType(),
+        row.getTargetId(),
+        row.getTargetLabel(),
+        timestamp(row.getCreatedAt()));
   }
 
   private List<AppEventDto> toDtosWithMedia(List<EventRow> rows) {
@@ -745,6 +796,84 @@ public class EventService {
     if (request.entranceCoordinates() != null) {
       validateCoordinates(request.entranceCoordinates(), "entranceCoordinates");
     }
+    normalizeTags(request.tags());
+  }
+
+  private void syncTags(String eventId, List<String> tags) {
+    eventMapper.deleteTags(eventId);
+    for (String tag : tags) {
+      eventMapper.insertTag(eventId, tag);
+    }
+  }
+
+  private List<String> normalizeTags(List<String> rawTags) {
+    if (rawTags == null) {
+      return List.of();
+    }
+
+    LinkedHashSet<String> normalized = new LinkedHashSet<>();
+    for (String rawTag : rawTags) {
+      String tag = normalizeTag(rawTag);
+      if (tag != null) {
+        normalized.add(tag);
+      }
+    }
+
+    if (normalized.size() > MAX_EVENT_TAGS) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "events accept up to " + MAX_EVENT_TAGS + " tags.");
+    }
+
+    return new ArrayList<>(normalized);
+  }
+
+  private String normalizeTag(String value) {
+    String normalized = trimToNull(value);
+    if (normalized == null) {
+      return null;
+    }
+
+    normalized = normalized.replaceFirst("^#+", "").replaceAll("\\s+", " ").trim();
+    if (normalized.isEmpty()) {
+      return null;
+    }
+    if (normalized.length() > MAX_EVENT_TAG_LENGTH) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "tags must be at most " + MAX_EVENT_TAG_LENGTH + " characters.");
+    }
+
+    return normalized;
+  }
+
+  private List<String> tagsFromRow(EventRow row) {
+    String tagsCsv = trimToNull(row.getTagsCsv());
+    if (tagsCsv == null) {
+      return List.of();
+    }
+
+    return List.of(tagsCsv.split(",")).stream().map(this::trimToNull).filter(Objects::nonNull).toList();
+  }
+
+  private String normalizeFeedPreferenceType(String type) {
+    String normalized = trimToNull(type);
+    if ("event".equals(normalized) || "creator".equals(normalized) || "tag".equals(normalized)) {
+      return normalized;
+    }
+    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported feed preference type.");
+  }
+
+  private String normalizeFeedPreferenceTarget(String type, String targetId) {
+    String normalized = trimToNull(targetId);
+    if (normalized == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "targetId is required.");
+    }
+    return "tag".equals(type) ? normalized.replaceFirst("^#+", "").trim().toLowerCase(Locale.ROOT) : normalized;
+  }
+
+  private String trimLabel(String label, int maxLength) {
+    String normalized = trimToNull(label);
+    if (normalized == null) {
+      return "";
+    }
+    return normalized.length() > maxLength ? normalized.substring(0, maxLength) : normalized;
   }
 
   private void requireNonBlank(String value, String fieldName) {

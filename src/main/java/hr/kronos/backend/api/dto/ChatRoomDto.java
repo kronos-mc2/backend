@@ -18,4 +18,6 @@ public record ChatRoomDto(
     boolean adminOnly,
     boolean mutedByMe,
     String eventId,
+    String friendshipStatus,
+    FriendRequestDto pendingFriendRequest,
     List<ChatMemberDto> members) {}

@@ -10,8 +10,13 @@ public class ChatMessageRow {
   private String senderAvatarUrl;
   private String messageType;
   private String body;
+  private String encryptedBody;
+  private String encryptionNonce;
+  private String encryptionKeyId;
+  private int encryptionVersion;
   private String eventId;
   private String pollId;
+  private String friendRequestId;
   private OffsetDateTime createdAt;
 
   public String getId() {
@@ -70,6 +75,38 @@ public class ChatMessageRow {
     this.body = body;
   }
 
+  public String getEncryptedBody() {
+    return encryptedBody;
+  }
+
+  public void setEncryptedBody(String encryptedBody) {
+    this.encryptedBody = encryptedBody;
+  }
+
+  public String getEncryptionNonce() {
+    return encryptionNonce;
+  }
+
+  public void setEncryptionNonce(String encryptionNonce) {
+    this.encryptionNonce = encryptionNonce;
+  }
+
+  public String getEncryptionKeyId() {
+    return encryptionKeyId;
+  }
+
+  public void setEncryptionKeyId(String encryptionKeyId) {
+    this.encryptionKeyId = encryptionKeyId;
+  }
+
+  public int getEncryptionVersion() {
+    return encryptionVersion;
+  }
+
+  public void setEncryptionVersion(int encryptionVersion) {
+    this.encryptionVersion = encryptionVersion;
+  }
+
   public String getEventId() {
     return eventId;
   }
@@ -84,6 +121,14 @@ public class ChatMessageRow {
 
   public void setPollId(String pollId) {
     this.pollId = pollId;
+  }
+
+  public String getFriendRequestId() {
+    return friendRequestId;
+  }
+
+  public void setFriendRequestId(String friendRequestId) {
+    this.friendRequestId = friendRequestId;
   }
 
   public OffsetDateTime getCreatedAt() {

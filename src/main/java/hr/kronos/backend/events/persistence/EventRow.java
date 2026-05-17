@@ -40,6 +40,7 @@ public class EventRow {
   private int participantCount;
   private int waitlistCount;
   private String userParticipantStatus;
+  private String tagsCsv;
 
   public String getId() {
     return id;
@@ -327,5 +328,13 @@ public class EventRow {
 
   public void setUserParticipantStatus(String userParticipantStatus) {
     this.userParticipantStatus = userParticipantStatus;
+  }
+
+  public String getTagsCsv() {
+    return tagsCsv;
+  }
+
+  public void setTagsCsv(String tagsCsv) {
+    this.tagsCsv = tagsCsv;
   }
 }

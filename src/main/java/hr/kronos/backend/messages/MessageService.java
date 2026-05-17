@@ -9,6 +9,7 @@ import hr.kronos.backend.api.dto.ConversationDto;
 import hr.kronos.backend.api.dto.CreateChatRoomRequest;
 import hr.kronos.backend.api.dto.CreatePollRequest;
 import hr.kronos.backend.api.dto.EventSharePreviewDto;
+import hr.kronos.backend.api.dto.FriendRequestDto;
 import hr.kronos.backend.api.dto.LocalizedTextDto;
 import hr.kronos.backend.api.dto.PollDto;
 import hr.kronos.backend.api.dto.PollOptionDto;
@@ -29,6 +30,8 @@ import hr.kronos.backend.messages.persistence.PollRow;
 import hr.kronos.backend.messages.realtime.ChatRealtimeEvent;
 import hr.kronos.backend.messages.realtime.ChatRealtimeService;
 import hr.kronos.backend.notifications.NotificationService;
+import hr.kronos.backend.social.persistence.FriendRequestRow;
+import hr.kronos.backend.social.persistence.SocialMapper;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -59,18 +62,24 @@ public class MessageService {
   private final AuthMapper authMapper;
   private final ChatRealtimeService chatRealtimeService;
   private final NotificationService notificationService;
+  private final MessageEncryptionService messageEncryptionService;
+  private final SocialMapper socialMapper;
 
   public MessageService(
       MessageMapper messageMapper,
       EventMapper eventMapper,
       AuthMapper authMapper,
       ChatRealtimeService chatRealtimeService,
-      NotificationService notificationService) {
+      NotificationService notificationService,
+      MessageEncryptionService messageEncryptionService,
+      SocialMapper socialMapper) {
     this.messageMapper = messageMapper;
     this.eventMapper = eventMapper;
     this.authMapper = authMapper;
     this.chatRealtimeService = chatRealtimeService;
     this.notificationService = notificationService;
+    this.messageEncryptionService = messageEncryptionService;
+    this.socialMapper = socialMapper;
   }
 
   public List<ConversationDto> getConversations() {
@@ -258,7 +267,12 @@ public class MessageService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Message is too long.");
     }
 
-    ChatMessageRow message = newMessage(roomId, userId, "text", normalizedBody, null, null);
+    ChatMessageRow message = newMessage(roomId, userId, "text", null, null, null, null);
+    MessageEncryptionService.EncryptedMessage encryptedMessage = messageEncryptionService.encrypt(normalizedBody);
+    message.setEncryptedBody(encryptedMessage.ciphertext());
+    message.setEncryptionNonce(encryptedMessage.nonce());
+    message.setEncryptionKeyId(encryptedMessage.keyId());
+    message.setEncryptionVersion(encryptedMessage.version());
     messageMapper.insertMessage(message);
     messageMapper.touchRoom(roomId);
     ChatMessageDto messageDto = toMessageDto(messageMapper.findMessageById(message.getId(), userId), userId);
@@ -279,7 +293,7 @@ public class MessageService {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found.");
     }
 
-    ChatMessageRow message = newMessage(roomId, userId, "event_share", null, eventId, null);
+    ChatMessageRow message = newMessage(roomId, userId, "event_share", null, eventId, null, null);
     messageMapper.insertMessage(message);
     messageMapper.touchRoom(roomId);
     updateLegacyConversationPreview(roomId, event);
@@ -325,7 +339,7 @@ public class MessageService {
       messageMapper.insertPollOption(option);
     }
 
-    ChatMessageRow message = newMessage(roomId, userId, "poll", question, null, poll.getId());
+    ChatMessageRow message = newMessage(roomId, userId, "poll", question, null, poll.getId(), null);
     messageMapper.insertMessage(message);
     messageMapper.touchRoom(roomId);
     ChatMessageDto messageDto = toMessageDto(messageMapper.findMessageById(message.getId(), userId), userId);
@@ -378,6 +392,14 @@ public class MessageService {
         new ChatRealtimeEvent(ChatRealtimeService.ROOM_UPDATED, roomId, Map.of("roomId", roomId)));
   }
 
+  public void publishFriendRequestUpdated(String roomId) {
+    if (trimToNull(roomId) == null) {
+      return;
+    }
+    messageMapper.touchRoom(roomId);
+    publishRoomUpdated(roomId);
+  }
+
   private ChatRoomRow requireRoom(String roomId, String userId) {
     ChatRoomRow room = messageMapper.findRoomForUser(roomId, userId);
     if (room == null) {
@@ -426,15 +448,20 @@ public class MessageService {
         Boolean.TRUE.equals(row.getAdminOnly()),
         Boolean.TRUE.equals(row.getMutedByMe()),
         row.getEventId(),
+        firstNonBlank(row.getFriendshipStatus(), null, "none"),
+        toPendingFriendRequestDto(row),
         members);
   }
 
   private ChatMessageDto toMessageDto(ChatMessageRow row, String userId) {
+    String body = "text".equals(row.getMessageType())
+        ? messageEncryptionService.decrypt(row.getEncryptedBody(), row.getEncryptionNonce(), row.getBody())
+        : row.getBody();
     return new ChatMessageDto(
         row.getId(),
         row.getRoomId(),
         row.getMessageType(),
-        row.getBody(),
+        body,
         row.getSenderUserId(),
         row.getSenderName(),
         row.getSenderAvatarUrl(),
@@ -442,7 +469,8 @@ public class MessageService {
         row.getCreatedAt() == null ? null : TIME_FORMATTER.format(row.getCreatedAt()),
         row.getSenderUserId() != null && row.getSenderUserId().equals(userId),
         row.getEventId() == null ? null : toEventSharePreview(row.getEventId(), userId),
-        row.getPollId() == null ? null : toPollDto(messageMapper.findPollById(row.getPollId()), userId));
+        row.getPollId() == null ? null : toPollDto(messageMapper.findPollById(row.getPollId()), userId),
+        row.getFriendRequestId() == null ? null : toFriendRequestDto(socialMapper.findFriendRequest(row.getFriendRequestId())));
   }
 
   private PollDto toPollDto(PollRow poll, String userId) {
@@ -517,7 +545,55 @@ public class MessageService {
     return row;
   }
 
-  private ChatMessageRow newMessage(String roomId, String userId, String type, String body, String eventId, String pollId) {
+  public void sendFriendRequestMessage(String roomId, String friendRequestId, String userId) {
+    ChatRoomRow room = requireRoom(roomId, userId);
+    if (!ROOM_TYPE_DIRECT.equals(room.getRoomType())) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Friend requests can be sent only in direct chats.");
+    }
+
+    ChatMessageRow message = newMessage(roomId, userId, "friend_request", null, null, null, friendRequestId);
+    messageMapper.insertMessage(message);
+    messageMapper.touchRoom(roomId);
+    ChatMessageDto messageDto = toMessageDto(messageMapper.findMessageById(message.getId(), userId), userId);
+    publishMessageCreated(roomId, messageDto.id());
+    notificationService.sendChatMessagePush(roomId, messageDto, userId);
+  }
+
+  private FriendRequestDto toFriendRequestDto(FriendRequestRow row) {
+    if (row == null) {
+      return null;
+    }
+
+    return new FriendRequestDto(
+        row.getId(),
+        row.getRequesterUserId(),
+        row.getRequesterName(),
+        row.getRecipientUserId(),
+        row.getRecipientName(),
+        row.getStatus(),
+        row.getChatRoomId(),
+        timestamp(row.getCreatedAt()),
+        timestamp(row.getRespondedAt()));
+  }
+
+  private FriendRequestDto toPendingFriendRequestDto(ChatRoomRow row) {
+    if (row.getFriendRequestId() == null || !"pending".equals(row.getFriendRequestStatus())) {
+      return null;
+    }
+
+    return new FriendRequestDto(
+        row.getFriendRequestId(),
+        row.getFriendRequestRequesterUserId(),
+        row.getFriendRequestRequesterName(),
+        row.getFriendRequestRecipientUserId(),
+        row.getFriendRequestRecipientName(),
+        row.getFriendRequestStatus(),
+        row.getId(),
+        timestamp(row.getFriendRequestCreatedAt()),
+        timestamp(row.getFriendRequestRespondedAt()));
+  }
+
+  private ChatMessageRow newMessage(String roomId, String userId, String type, String body, String eventId, String pollId, String friendRequestId) {
     ChatMessageRow row = new ChatMessageRow();
     row.setId(prefixedId("msg"));
     row.setRoomId(roomId);
@@ -526,6 +602,7 @@ public class MessageService {
     row.setBody(body);
     row.setEventId(eventId);
     row.setPollId(pollId);
+    row.setFriendRequestId(friendRequestId);
     return row;
   }
 

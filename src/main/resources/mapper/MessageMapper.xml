@@ -63,6 +63,8 @@
       CASE lm.message_type
         WHEN 'event_share' THEN 'Podijeljen event'
         WHEN 'poll' THEN 'Poll'
+        WHEN 'friend_request' THEN 'Zahtjev za prijateljstvo'
+        WHEN 'text' THEN COALESCE(lm.body, 'Poruka')
         ELSE lm.body
       END,
       'Nema poruka jos.'
@@ -90,7 +92,50 @@
       FROM chat_notification_mutes mute
       WHERE mute.room_id = cr.id
         AND mute.user_id = #{userId}
-    ) AS muted_by_me
+    ) AS muted_by_me,
+    COALESCE(fr_state.friendship_status, 'none') AS friendship_status,
+    fr_state.friend_request_id,
+    fr_state.friend_requester_user_id,
+    fr_state.friend_requester_name,
+    fr_state.friend_request_recipient_user_id,
+    fr_state.friend_request_recipient_name,
+    fr_state.friend_request_status,
+    fr_state.friend_request_created_at,
+    fr_state.friend_request_responded_at
+  </sql>
+
+  <sql id="friendRequestStateJoin">
+    LEFT JOIN LATERAL (
+      SELECT
+        fr.id AS friend_request_id,
+        fr.requester_user_id AS friend_requester_user_id,
+        requester.full_name AS friend_requester_name,
+        fr.recipient_user_id AS friend_request_recipient_user_id,
+        recipient.full_name AS friend_request_recipient_name,
+        fr.status AS friend_request_status,
+        fr.created_at AS friend_request_created_at,
+        fr.responded_at AS friend_request_responded_at,
+        CASE
+          WHEN fr.status = 'accepted' THEN 'friends'
+          WHEN fr.status = 'pending' AND fr.requester_user_id = #{userId} THEN 'pending_sent'
+          WHEN fr.status = 'pending' AND fr.recipient_user_id = #{userId} THEN 'pending_received'
+          ELSE 'none'
+        END AS friendship_status
+      FROM friend_requests fr
+      INNER JOIN app_users requester ON requester.id = fr.requester_user_id
+      INNER JOIN app_users recipient ON recipient.id = fr.recipient_user_id
+      INNER JOIN chat_members other_member
+        ON other_member.room_id = cr.id
+        AND other_member.user_id &lt;&gt; #{userId}
+      WHERE cr.room_type = 'direct'
+        AND fr.status IN ('pending', 'accepted')
+        AND (
+          (fr.requester_user_id = #{userId} AND fr.recipient_user_id = other_member.user_id)
+          OR (fr.recipient_user_id = #{userId} AND fr.requester_user_id = other_member.user_id)
+        )
+      ORDER BY CASE fr.status WHEN 'accepted' THEN 0 ELSE 1 END, fr.created_at DESC
+      LIMIT 1
+    ) fr_state ON TRUE
   </sql>
 
   <select id="findConversations" resultType="hr.kronos.backend.messages.persistence.ConversationRow">
@@ -130,6 +175,7 @@
       ORDER BY m.created_at DESC, m.id DESC
       LIMIT 1
     ) lm ON TRUE
+    <include refid="friendRequestStateJoin" />
     WHERE cm.user_id IS NOT NULL
       <if test="query != null and query != ''">
         AND (
@@ -161,6 +207,7 @@
       ORDER BY m.created_at DESC, m.id DESC
       LIMIT 1
     ) lm ON TRUE
+    <include refid="friendRequestStateJoin" />
     WHERE cr.id = #{roomId}
       AND cm.user_id IS NOT NULL
     LIMIT 1
@@ -180,6 +227,7 @@
       ORDER BY m.created_at DESC, m.id DESC
       LIMIT 1
     ) lm ON TRUE
+    <include refid="friendRequestStateJoin" />
     WHERE cr.room_type = 'event'
       AND cr.event_id = #{eventId}
     LIMIT 1
@@ -199,6 +247,7 @@
       ORDER BY m.created_at DESC, m.id DESC
       LIMIT 1
     ) lm ON TRUE
+    <include refid="friendRequestStateJoin" />
     WHERE cr.room_type = 'direct'
       AND EXISTS (
         SELECT 1
@@ -231,8 +280,13 @@
       u.avatar_url AS sender_avatar_url,
       m.message_type,
       m.body,
+      m.encrypted_body,
+      m.encryption_nonce,
+      m.encryption_key_id,
+      m.encryption_version,
       m.event_id,
       m.poll_id,
+      m.friend_request_id,
       m.created_at
     FROM messages m
     LEFT JOIN app_users u ON u.id = m.sender_user_id
@@ -249,8 +303,13 @@
       u.avatar_url AS sender_avatar_url,
       m.message_type,
       m.body,
+      m.encrypted_body,
+      m.encryption_nonce,
+      m.encryption_key_id,
+      m.encryption_version,
       m.event_id,
       m.poll_id,
+      m.friend_request_id,
       m.created_at
     FROM messages m
     LEFT JOIN app_users u ON u.id = m.sender_user_id
@@ -406,16 +465,26 @@
       sender_user_id,
       message_type,
       body,
+      encrypted_body,
+      encryption_nonce,
+      encryption_key_id,
+      encryption_version,
       event_id,
-      poll_id
+      poll_id,
+      friend_request_id
     ) VALUES (
       #{id},
       #{roomId},
       #{senderUserId},
       #{messageType},
       #{body},
+      #{encryptedBody},
+      #{encryptionNonce},
+      #{encryptionKeyId},
+      #{encryptionVersion},
       #{eventId},
-      #{pollId}
+      #{pollId},
+      #{friendRequestId}
     )
   </insert>
 

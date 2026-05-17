@@ -1,10 +1,12 @@
 package hr.kronos.backend.api;
 
 import hr.kronos.backend.api.dto.AppEventDto;
+import hr.kronos.backend.api.dto.CreateFeedPreferenceRequest;
 import hr.kronos.backend.api.dto.CreateEventRequest;
 import hr.kronos.backend.api.dto.EventMediaRequest;
 import hr.kronos.backend.api.dto.EventParticipantDto;
 import hr.kronos.backend.api.dto.EventRatingRequest;
+import hr.kronos.backend.api.dto.FeedPreferenceDto;
 import hr.kronos.backend.api.dto.FeedPageDto;
 import hr.kronos.backend.api.dto.OrganizerRatingRequest;
 import hr.kronos.backend.api.dto.UpdateEventRequest;
@@ -70,6 +72,27 @@ public class EventController {
   public List<AppEventDto> getLikedEvents(Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
     return eventService.getLikedEvents(userId);
+  }
+
+  @GetMapping("/users/me/feed-preferences")
+  public List<FeedPreferenceDto> getFeedPreferences(Authentication authentication) {
+    String userId = AuthenticatedUser.userId(authentication);
+    return eventService.getFeedPreferences(userId);
+  }
+
+  @PostMapping("/users/me/feed-preferences")
+  @ResponseStatus(HttpStatus.CREATED)
+  public FeedPreferenceDto createFeedPreference(
+      @RequestBody CreateFeedPreferenceRequest request, Authentication authentication) {
+    String userId = AuthenticatedUser.userId(authentication);
+    return eventService.createFeedPreference(request, userId);
+  }
+
+  @DeleteMapping("/users/me/feed-preferences/{preferenceId}")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  public void deleteFeedPreference(@PathVariable String preferenceId, Authentication authentication) {
+    String userId = AuthenticatedUser.userId(authentication);
+    eventService.deleteFeedPreference(preferenceId, userId);
   }
 
   @GetMapping("/users/{userId}/events/upcoming")

@@ -36,6 +36,8 @@ public interface EventMapper {
 
   List<EventMediaRow> findMediaByEventIds(@Param("eventIds") List<String> eventIds);
 
+  List<FeedPreferenceRow> findFeedPreferences(@Param("userId") String userId);
+
   List<EventParticipantRow> findParticipantsByEventId(@Param("eventId") String eventId);
 
   int countWaitlistedParticipants(@Param("eventId") String eventId);
@@ -47,6 +49,19 @@ public interface EventMapper {
   int insert(EventRow event);
 
   int insertMedia(EventMediaRow media);
+
+  int insertTag(@Param("eventId") String eventId, @Param("tag") String tag);
+
+  int deleteTags(@Param("eventId") String eventId);
+
+  int insertFeedPreference(
+      @Param("id") String id,
+      @Param("userId") String userId,
+      @Param("blockType") String blockType,
+      @Param("targetId") String targetId,
+      @Param("targetLabel") String targetLabel);
+
+  int deleteFeedPreference(@Param("preferenceId") String preferenceId, @Param("userId") String userId);
 
   int update(EventRow event);
 

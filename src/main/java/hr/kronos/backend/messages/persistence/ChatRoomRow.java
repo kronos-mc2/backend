@@ -22,6 +22,15 @@ public class ChatRoomRow {
   private Integer memberCount;
   private String myRole;
   private Boolean mutedByMe;
+  private String friendshipStatus;
+  private String friendRequestId;
+  private String friendRequestRequesterUserId;
+  private String friendRequestRequesterName;
+  private String friendRequestRecipientUserId;
+  private String friendRequestRecipientName;
+  private String friendRequestStatus;
+  private OffsetDateTime friendRequestCreatedAt;
+  private OffsetDateTime friendRequestRespondedAt;
 
   public String getId() {
     return id;
@@ -173,5 +182,77 @@ public class ChatRoomRow {
 
   public void setMutedByMe(Boolean mutedByMe) {
     this.mutedByMe = mutedByMe;
+  }
+
+  public String getFriendshipStatus() {
+    return friendshipStatus;
+  }
+
+  public void setFriendshipStatus(String friendshipStatus) {
+    this.friendshipStatus = friendshipStatus;
+  }
+
+  public String getFriendRequestId() {
+    return friendRequestId;
+  }
+
+  public void setFriendRequestId(String friendRequestId) {
+    this.friendRequestId = friendRequestId;
+  }
+
+  public String getFriendRequestRequesterUserId() {
+    return friendRequestRequesterUserId;
+  }
+
+  public void setFriendRequestRequesterUserId(String friendRequestRequesterUserId) {
+    this.friendRequestRequesterUserId = friendRequestRequesterUserId;
+  }
+
+  public String getFriendRequestRequesterName() {
+    return friendRequestRequesterName;
+  }
+
+  public void setFriendRequestRequesterName(String friendRequestRequesterName) {
+    this.friendRequestRequesterName = friendRequestRequesterName;
+  }
+
+  public String getFriendRequestRecipientUserId() {
+    return friendRequestRecipientUserId;
+  }
+
+  public void setFriendRequestRecipientUserId(String friendRequestRecipientUserId) {
+    this.friendRequestRecipientUserId = friendRequestRecipientUserId;
+  }
+
+  public String getFriendRequestRecipientName() {
+    return friendRequestRecipientName;
+  }
+
+  public void setFriendRequestRecipientName(String friendRequestRecipientName) {
+    this.friendRequestRecipientName = friendRequestRecipientName;
+  }
+
+  public String getFriendRequestStatus() {
+    return friendRequestStatus;
+  }
+
+  public void setFriendRequestStatus(String friendRequestStatus) {
+    this.friendRequestStatus = friendRequestStatus;
+  }
+
+  public OffsetDateTime getFriendRequestCreatedAt() {
+    return friendRequestCreatedAt;
+  }
+
+  public void setFriendRequestCreatedAt(OffsetDateTime friendRequestCreatedAt) {
+    this.friendRequestCreatedAt = friendRequestCreatedAt;
+  }
+
+  public OffsetDateTime getFriendRequestRespondedAt() {
+    return friendRequestRespondedAt;
+  }
+
+  public void setFriendRequestRespondedAt(OffsetDateTime friendRequestRespondedAt) {
+    this.friendRequestRespondedAt = friendRequestRespondedAt;
   }
 }

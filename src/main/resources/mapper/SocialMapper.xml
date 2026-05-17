@@ -14,4 +14,81 @@
     ORDER BY name ASC
   </select>
 
+  <select id="findFriendsForUser" resultType="hr.kronos.backend.social.persistence.FriendRow">
+    SELECT
+      other_user.id,
+      other_user.full_name AS name,
+      'Prijatelj' AS status_hr,
+      'Friend' AS status_en
+    FROM friend_requests fr
+    INNER JOIN app_users other_user
+      ON other_user.id = CASE
+        WHEN fr.requester_user_id = #{userId} THEN fr.recipient_user_id
+        ELSE fr.requester_user_id
+      END
+    WHERE fr.status = 'accepted'
+      AND (fr.requester_user_id = #{userId} OR fr.recipient_user_id = #{userId})
+    ORDER BY other_user.full_name ASC
+  </select>
+
+  <select id="findFriendRequest" resultType="hr.kronos.backend.social.persistence.FriendRequestRow">
+    SELECT
+      fr.id,
+      fr.requester_user_id,
+      requester.full_name AS requester_name,
+      fr.recipient_user_id,
+      recipient.full_name AS recipient_name,
+      fr.chat_room_id,
+      fr.status,
+      fr.created_at,
+      fr.responded_at
+    FROM friend_requests fr
+    INNER JOIN app_users requester ON requester.id = fr.requester_user_id
+    INNER JOIN app_users recipient ON recipient.id = fr.recipient_user_id
+    WHERE fr.id = #{id}
+    LIMIT 1
+  </select>
+
+  <select id="findFriendRequestBetween" resultType="hr.kronos.backend.social.persistence.FriendRequestRow">
+    SELECT
+      fr.id,
+      fr.requester_user_id,
+      requester.full_name AS requester_name,
+      fr.recipient_user_id,
+      recipient.full_name AS recipient_name,
+      fr.chat_room_id,
+      fr.status,
+      fr.created_at,
+      fr.responded_at
+    FROM friend_requests fr
+    INNER JOIN app_users requester ON requester.id = fr.requester_user_id
+    INNER JOIN app_users recipient ON recipient.id = fr.recipient_user_id
+    WHERE fr.status IN ('pending', 'accepted')
+      AND LEAST(fr.requester_user_id, fr.recipient_user_id) = LEAST(#{leftUserId}, #{rightUserId})
+      AND GREATEST(fr.requester_user_id, fr.recipient_user_id) = GREATEST(#{leftUserId}, #{rightUserId})
+    ORDER BY fr.created_at DESC
+    LIMIT 1
+  </select>
+
+  <insert id="insertFriendRequest">
+    INSERT INTO friend_requests (
+      id,
+      requester_user_id,
+      recipient_user_id,
+      chat_room_id
+    ) VALUES (
+      #{id},
+      #{requesterUserId},
+      #{recipientUserId},
+      #{chatRoomId}
+    )
+  </insert>
+
+  <update id="updateFriendRequestStatus">
+    UPDATE friend_requests
+    SET status = #{status},
+        responded_at = NOW()
+    WHERE id = #{id}
+  </update>
+
 </mapper>

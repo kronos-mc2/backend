@@ -140,6 +140,7 @@ You can override with env vars:
 - `LOCATION_SEARCH_USER_AGENT` (default `GdjeIKadaBackend/1.0`; promijeni za produkcijski deployment)
 - `APP_NOTIFICATIONS_PUSH_ENABLED` / property `app.notifications.push.enabled` (default `true`; iskljucuje remote push slanje bez gasenja preferenci/tokena)
 - `APP_NOTIFICATIONS_EXPO_ENDPOINT` / property `app.notifications.expo.endpoint` (default `https://exp.host/--/api/v2/push/send`)
+- `MESSAGES_ENCRYPTION_SECRET` / property `app.messages.encryption.secret` za AES-GCM encryption-at-rest novih text poruka; minimalno 32 znaka. Ako nije postavljen, lokalno se koristi `AUTH_JWT_SECRET` kao kompatibilni fallback.
 - `APP_WEBSOCKET_ALLOWED_ORIGINS` / property `app.websocket.allowed-origins` za WebSocket origin allowlistu; default je `*` za native/local razvoj
 
 ## API routes
@@ -166,6 +167,9 @@ You can override with env vars:
 - `DELETE /api/events/{id}/like`
 - `GET /api/users/me/events`
 - `GET /api/users/me/liked-events`
+- `GET /api/users/me/feed-preferences`
+- `POST /api/users/me/feed-preferences`
+- `DELETE /api/users/me/feed-preferences/{preferenceId}`
 - `GET /api/users/{userId}/events/upcoming`
 - `PATCH /api/users/me/profile`
 - `GET /api/users/me/activity`
@@ -176,6 +180,8 @@ You can override with env vars:
 - `DELETE /api/users/me/notifications/push-tokens?token=`
 - `GET /api/feed?cursor=&limit=`
 - `GET /api/social/friends`
+- `POST /api/social/friend-requests`
+- `PATCH /api/social/friend-requests/{id}`
 - `GET /api/messages/chat-rooms?query=`
 - `POST /api/messages/chat-rooms`
 - `POST /api/messages/events/{eventId}/chat-room`
@@ -200,12 +206,14 @@ Napomena: `/api/events` i `/api/feed` vracaju samo evente gdje je `visibility = 
 Svi `/api/**` endpointi (osim javnih auth endpointa) traze `Authorization: Bearer <token>`.
 `POST /api/events` prihvaca canonical single-language polja `title`, `where`, `about` i opcionalni `entryInstructions`; backend ih sprema u postojece HR/EN stupce. Stara `titleHr/titleEn`, `whereHr/whereEn`, `aboutHr/aboutEn` i `entryInstructionsHr/entryInstructionsEn` polja ostaju podrzana radi kompatibilnosti.
 Event response DTO dodatno vraca `creatorName` i `creatorAvatarUrl` iz `app_users` kad creator postoji, kako map/feed/details klijenti mogu prikazati organizatora bez dodatnog profila requesta.
+Event response DTO vraca i `tags`, a `POST/PATCH /api/events` prihvaca do 5 tagova. `GET/POST/DELETE /api/users/me/feed-preferences` sprema FYP `Not interested` preference po eventu, kreatoru ili tagu; `/api/feed` i discovery liste ih filtriraju server-side.
 Owner-only event management endpointi dopustaju creatoru update/delete eventa, media URL management, pregled/prihvacanje waitliste, micanje sudionika i blokiranje korisnika s neplacenog eventa. Owner remove sprema participant status `rejected`, block dodatno sprema `event_blocks`, a backend zapisuje in-app `app_notifications` za approve/remove/block. Blokirani korisnici vise ne vide event kroz map/feed/list discovery i ne mogu ga ponovno joinati; profil/kalendar mogu prikazati status `blocked`.
 `POST /api/events/{id}/ratings/full` sprema odvojenu ocjenu/komentar za event u `event_ratings` i ocjenu/komentar za organizatora u `event_organizer_ratings`. Backend scheduler oznacava `published` evente kao `finished` jedan dan nakon `end_at/start_at/when_iso`.
 `GET /api/locations/search` proxyja Nominatim/OpenStreetMap location autocomplete s limitom, localeom, opcionalnom proximity koordinatom i kratkim in-memory cacheom; koristi se u frontend create event address flowu.
 
 `GET /api/messages/chat-rooms` vraca samo sobe u kojima je trenutni korisnik clan kroz `chat_members`; legacy seed razgovori `c1/c2/c3` se brisu migracijom `V6__remove_legacy_mock_chats.sql`.
 Chat room/member/message DTO-ovi vracaju `avatarUrl` iz `app_users.avatar_url`; direct roomovi dodatno vracaju `directUserId` za dohvat buducih eventova sugovornika. Direct chatovi ignoriraju `adminOnly` i oba korisnika mogu pisati. Chat room DTO vraca i `mutedByMe`, a `PATCH /api/messages/chat-rooms/{id}/notification-settings` sprema per-chat mute u `chat_notification_mutes`.
+Nove text poruke se spremaju encrypted-at-rest u `messages.encrypted_body` + `encryption_nonce` kroz AES-GCM; stari plaintext `body` ostaje fallback za postojece zapise. `POST /api/social/friend-requests` kreira friend request i ubacuje posebnu chat poruku u direct room, a `PATCH /api/social/friend-requests/{id}` prihvaca ili odbija request.
 
 Poruke salju Expo push notifikacije nakon uspjesnog REST writea (`text`, `event_share`, `poll`). Primatelji se filtriraju server-side prema `user_notification_preferences`, `chat_notification_mutes`, clanstvu u sobi i aktivnim `user_push_tokens`; posiljatelj se nikad ne obavjestava. Expo `DeviceNotRegistered` odgovor automatski disablea taj token.
 

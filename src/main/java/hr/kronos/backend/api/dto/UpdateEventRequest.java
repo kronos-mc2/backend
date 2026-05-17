@@ -2,6 +2,7 @@ package hr.kronos.backend.api.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.math.BigDecimal;
+import java.util.List;
 
 public record UpdateEventRequest(
     String title,
@@ -19,4 +20,5 @@ public record UpdateEventRequest(
     BigDecimal priceAmount,
     String priceCurrency,
     Integer capacity,
-    String status) {}
+    String status,
+    List<String> tags) {}

@@ -39,4 +39,5 @@ public record AppEventDto(
     Boolean joinedByMe,
     String attendanceStatus,
     boolean canJoin,
+    List<String> tags,
     List<EventMediaDto> media) {}

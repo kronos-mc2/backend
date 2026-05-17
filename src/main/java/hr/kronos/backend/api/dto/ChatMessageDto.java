@@ -12,4 +12,5 @@ public record ChatMessageDto(
     String timeLabel,
     boolean mine,
     EventSharePreviewDto event,
-    PollDto poll) {}
+    PollDto poll,
+    FriendRequestDto friendRequest) {}
