@@ -6,6 +6,7 @@ public class PushNotificationRecipientRow {
   private String token;
   private String roomType;
   private String roomTitle;
+  private String locale;
 
   public String getUserId() {
     return userId;
@@ -45,5 +46,13 @@ public class PushNotificationRecipientRow {
 
   public void setRoomTitle(String roomTitle) {
     this.roomTitle = roomTitle;
+  }
+
+  public String getLocale() {
+    return locale;
+  }
+
+  public void setLocale(String locale) {
+    this.locale = locale;
   }
 }

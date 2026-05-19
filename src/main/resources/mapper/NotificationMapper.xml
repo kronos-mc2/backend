@@ -37,6 +37,7 @@
       token,
       platform,
       device_id,
+      locale,
       enabled,
       last_registered_at
     ) VALUES (
@@ -45,6 +46,7 @@
       #{token},
       #{platform},
       #{deviceId},
+      #{locale},
       TRUE,
       NOW()
     )
@@ -53,6 +55,7 @@
       user_id = EXCLUDED.user_id,
       platform = EXCLUDED.platform,
       device_id = EXCLUDED.device_id,
+      locale = EXCLUDED.locale,
       enabled = TRUE,
       last_registered_at = NOW(),
       updated_at = NOW()
@@ -106,6 +109,7 @@
       upt.id AS token_id,
       upt.token,
       cr.room_type,
+      COALESCE(upt.locale, 'hr') AS locale,
       COALESCE(
         cr.title,
         CASE

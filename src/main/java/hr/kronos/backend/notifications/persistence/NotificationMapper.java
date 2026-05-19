@@ -18,7 +18,8 @@ public interface NotificationMapper {
       @Param("userId") String userId,
       @Param("token") String token,
       @Param("platform") String platform,
-      @Param("deviceId") String deviceId);
+      @Param("deviceId") String deviceId,
+      @Param("locale") String locale);
 
   int disablePushToken(@Param("userId") String userId, @Param("token") String token);
 

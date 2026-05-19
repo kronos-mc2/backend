@@ -25,7 +25,7 @@ export DB_PASSWORD=gik
 export AUTH_JWT_SECRET=change-this-local-secret-to-at-least-32-bytes
 ```
 
-Lokalno mozes drzati sve vrijednosti u ignoriranom `.env` fileu. Spring Boot ga ucitava automatski kad backend pokreces iz `backend/` foldera, a helper script samo dodatno postavi `JAVA_HOME` i `SPRING_PROFILES_ACTIVE=dev`:
+Lokalno mozes drzati dev vrijednosti u ignoriranom `.env.dev` fileu. `scripts/run-dev.sh` prvo cita `.env.dev`, a ako ga nema pada na `.env`, postavi `JAVA_HOME` i `SPRING_PROFILES_ACTIVE=dev`:
 
 ```bash
 bash scripts/run-dev.sh
@@ -55,9 +55,9 @@ Za pokretanje iz IntelliJ IDEA:
 2. Postavi JDK na Java 25.
 3. Postavi `Working directory` na apsolutni `backend` folder, npr. `/Users/dgulic/Projects/KRONOS-GIK/backend`.
 4. Postavi `Active profiles` na `dev` ili dodaj env varijablu `SPRING_PROFILES_ACTIVE=dev`.
-5. Ne moras rucno dodavati `DB_PASSWORD`, `AUTH_JWT_SECRET` i ostale lokalne varijable ako postoji `backend/.env`, jer ga Spring ucitava preko `spring.config.import`.
+5. Za IntelliJ najjednostavnije rucno dodaj env varijable iz `backend/.env.dev` u run configuration. Spring automatski cita `backend/.env`, dok `scripts/run-dev.sh` cita `.env.dev`.
 
-Config import podrzava oba najcesca working directoryja:
+Config import za `.env` podrzava oba najcesca working directoryja:
 
 - `backend/` -> cita `.env`
 - parent folder `KRONOS-GIK/` -> cita `backend/.env`
@@ -132,8 +132,8 @@ You can override with env vars:
 - `DB_PASSWORD`
 - `AUTH_JWT_SECRET`
 - `AUTH_JWT_EXPIRATION_SECONDS` (default je 2592000 sekundi = 30 dana; backend odbija vece vrijednosti)
-- `AUTH_GOOGLE_CLIENT_IDS` (comma-separated Google client IDs)
-- `AUTH_APPLE_CLIENT_ID` (Apple token audience; for native iOS login this should be your iOS bundle identifier)
+- `AUTH_GOOGLE_CLIENT_IDS` (comma-separated Google OAuth audience vrijednosti; za Android/iOS native Google Sign-In obavezno ukljuci Web client ID iz `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`)
+- `AUTH_APPLE_CLIENT_ID` (Apple token audience; za native iOS login ovo treba biti iOS bundle identifier)
 - `PAYMENTS_STUB_ENABLED` (default `true`; Stripe-named provider radi kao lokalni stub bez vanjskog poziva)
 - `STRIPE_PUBLISHABLE_KEY` (publishable key koji frontend moze dobiti u checkout responseu kad se ukljuci realni Stripe flow)
 - `LOCATION_SEARCH_NOMINATIM_BASE_URL` (default `https://nominatim.openstreetmap.org`)
@@ -213,9 +213,9 @@ Owner-only event management endpointi dopustaju creatoru update/delete eventa, m
 
 `GET /api/messages/chat-rooms` vraca samo sobe u kojima je trenutni korisnik clan kroz `chat_members`; legacy seed razgovori `c1/c2/c3` se brisu migracijom `V6__remove_legacy_mock_chats.sql`.
 Chat room/member/message DTO-ovi vracaju `avatarUrl` iz `app_users.avatar_url`; direct roomovi dodatno vracaju `directUserId` za dohvat buducih eventova sugovornika. Direct chatovi ignoriraju `adminOnly` i oba korisnika mogu pisati. Chat room DTO vraca i `mutedByMe`, a `PATCH /api/messages/chat-rooms/{id}/notification-settings` sprema per-chat mute u `chat_notification_mutes`.
-Nove text poruke se spremaju encrypted-at-rest u `messages.encrypted_body` + `encryption_nonce` kroz AES-GCM; stari plaintext `body` ostaje fallback za postojece zapise. `POST /api/social/friend-requests` kreira friend request i ubacuje posebnu chat poruku u direct room, a `PATCH /api/social/friend-requests/{id}` prihvaca ili odbija request.
+Google/Apple login verificira id token na backendu, provjerava issuer/audience/email verification, sprema provider `sub` u `user_social_identities` i tek tada izdaje nas JWT. Nove text poruke se spremaju encrypted-at-rest u `messages.encrypted_body` + `encryption_nonce` kroz AES-GCM; stari plaintext `body` ostaje fallback za postojece zapise. `POST /api/social/friend-requests` kreira friend request i ubacuje posebnu chat poruku u direct room, a `PATCH /api/social/friend-requests/{id}` prihvaca ili odbija request.
 
-Poruke salju Expo push notifikacije nakon uspjesnog REST writea (`text`, `event_share`, `poll`). Primatelji se filtriraju server-side prema `user_notification_preferences`, `chat_notification_mutes`, clanstvu u sobi i aktivnim `user_push_tokens`; posiljatelj se nikad ne obavjestava. Expo `DeviceNotRegistered` odgovor automatski disablea taj token.
+Poruke salju Expo push notifikacije nakon uspjesnog REST writea (`text`, `event_share`, `poll`). Primatelji se filtriraju server-side prema `user_notification_preferences`, `chat_notification_mutes`, clanstvu u sobi i aktivnim `user_push_tokens`; posiljatelj se nikad ne obavjestava. `user_push_tokens.locale` cuva HR/EN jezik uredaja za fallback tekst push poruke, Android payload ide na `messages` channel, a Expo `DeviceNotRegistered` odgovor automatski disablea taj token.
 
 `GET /api/messages/people?query=` vraca praznu listu za prazan ili prekratak query, tako da novi chat ne ucitava cijeli popis korisnika prije stvarne pretrage.
 

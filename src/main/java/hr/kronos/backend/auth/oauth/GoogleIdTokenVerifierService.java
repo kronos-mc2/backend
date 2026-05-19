@@ -13,11 +13,14 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class GoogleIdTokenVerifierService {
+  private static final Logger logger = LoggerFactory.getLogger(GoogleIdTokenVerifierService.class);
   private static final String GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs";
   private static final String GOOGLE_ISSUER = "https://accounts.google.com";
 
@@ -65,9 +68,15 @@ public class GoogleIdTokenVerifierService {
         throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Google account email is not verified.");
       }
 
+      String providerSubject = jwt.getSubject();
+      if (providerSubject == null || providerSubject.isBlank()) {
+        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Google account subject is missing.");
+      }
+
       String name = jwt.getClaimAsString("name");
-      return new SocialIdentity(email, name);
-    } catch (JwtException _) {
+      return new SocialIdentity(providerSubject, email, name);
+    } catch (JwtException exception) {
+      logger.warn("Google id token verification failed: {}", exception.getMessage());
       throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid Google token.");
     }
   }

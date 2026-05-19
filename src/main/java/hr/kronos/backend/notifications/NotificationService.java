@@ -96,12 +96,13 @@ public class NotificationService {
     }
 
     String platform = normalizePlatform(request.platform());
+    String locale = normalizeLocale(request.locale());
     String deviceId = trimToNull(request.deviceId());
     if (deviceId != null && deviceId.length() > MAX_DEVICE_ID_LENGTH) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "deviceId is too long.");
     }
 
-    notificationMapper.upsertPushToken("push-" + UUID.randomUUID(), userId, token, platform, deviceId);
+    notificationMapper.upsertPushToken("push-" + UUID.randomUUID(), userId, token, platform, deviceId, locale);
   }
 
   public void deletePushToken(String token, String userId) {
@@ -170,8 +171,10 @@ public class NotificationService {
     return Map.of(
         "to", recipient.getToken(),
         "sound", "default",
+        "channelId", "messages",
+        "priority", "high",
         "title", firstNonBlank(recipient.getRoomTitle(), "Gdje i Kada"),
-        "body", trimNotificationBody(messageBody(message)),
+        "body", trimNotificationBody(messageBody(message, recipient.getLocale())),
         "data", Map.of(
             "type", "chat_message",
             "roomId", message.roomId(),
@@ -199,17 +202,20 @@ public class NotificationService {
     }
   }
 
-  private String messageBody(ChatMessageDto message) {
+  private String messageBody(ChatMessageDto message, String locale) {
     if ("event_share".equals(message.type())) {
       if (message.event() != null && message.event().title() != null) {
+        if (isEnglish(locale)) {
+          return firstNonBlank(message.event().title().en(), message.event().title().hr(), "Event");
+        }
         return firstNonBlank(message.event().title().hr(), message.event().title().en(), "Event");
       }
       return "Event";
     }
     if ("poll".equals(message.type())) {
-      return firstNonBlank(message.body(), "Poll");
+      return firstNonBlank(message.body(), isEnglish(locale) ? "Poll" : "Anketa");
     }
-    return firstNonBlank(message.body(), "Nova poruka");
+    return firstNonBlank(message.body(), isEnglish(locale) ? "New message" : "Nova poruka");
   }
 
   private String trimNotificationBody(String body) {
@@ -236,6 +242,23 @@ public class NotificationService {
       case "ios", "android", "web" -> lower;
       default -> "unknown";
     };
+  }
+
+  private String normalizeLocale(String locale) {
+    String normalized = trimToNull(locale);
+    if (normalized == null) {
+      return "hr";
+    }
+
+    String lower = normalized.toLowerCase(Locale.ROOT);
+    return switch (lower) {
+      case "hr", "en" -> lower;
+      default -> "hr";
+    };
+  }
+
+  private boolean isEnglish(String locale) {
+    return "en".equalsIgnoreCase(locale);
   }
 
   private String trimToNull(String value) {

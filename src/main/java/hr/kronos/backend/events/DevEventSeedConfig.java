@@ -101,6 +101,8 @@ public class DevEventSeedConfig {
     row.setVisibility(seed.visibility());
     row.setAttendanceMode("open");
     row.setStatus("published");
+    row.setEventRatingAverage(BigDecimal.ZERO);
+    row.setEventRatingCount(0);
     row.setOrganizerRatingAverage(BigDecimal.ZERO);
     row.setOrganizerRatingCount(0);
     row.setParticipantCount(seed.participants());

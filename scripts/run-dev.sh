@@ -8,7 +8,12 @@ if [ -z "${JAVA_HOME:-}" ] && [ -x /usr/libexec/java_home ]; then
   JAVA_HOME=$(/usr/libexec/java_home)
 fi
 
-if [ -f .env ]; then
+if [ -f .env.dev ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . ./.env.dev
+  set +a
+elif [ -f .env ]; then
   set -a
   # shellcheck disable=SC1091
   . ./.env

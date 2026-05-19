@@ -460,9 +460,9 @@
       #{priceCurrency},
       #{capacity},
       #{status},
-      #{eventRatingAverage},
+      COALESCE(#{eventRatingAverage,jdbcType=NUMERIC}, 0),
       #{eventRatingCount},
-      #{organizerRatingAverage},
+      COALESCE(#{organizerRatingAverage,jdbcType=NUMERIC}, 0),
       #{organizerRatingCount},
       #{participantCount}
     )

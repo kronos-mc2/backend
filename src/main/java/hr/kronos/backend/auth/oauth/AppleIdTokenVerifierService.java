@@ -11,11 +11,14 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class AppleIdTokenVerifierService {
+  private static final Logger logger = LoggerFactory.getLogger(AppleIdTokenVerifierService.class);
   private static final String APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys";
   private static final String APPLE_ISSUER = "https://appleid.apple.com";
 
@@ -63,8 +66,14 @@ public class AppleIdTokenVerifierService {
         throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Apple account email is not verified.");
       }
 
-      return new SocialIdentity(email, jwt.getClaimAsString("name"));
-    } catch (JwtException _) {
+      String providerSubject = jwt.getSubject();
+      if (providerSubject == null || providerSubject.isBlank()) {
+        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Apple account subject is missing.");
+      }
+
+      return new SocialIdentity(providerSubject, email, jwt.getClaimAsString("name"));
+    } catch (JwtException exception) {
+      logger.warn("Apple id token verification failed: {}", exception.getMessage());
       throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid Apple token.");
     }
   }

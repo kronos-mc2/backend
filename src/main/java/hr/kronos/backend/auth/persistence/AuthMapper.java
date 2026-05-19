@@ -9,7 +9,23 @@ public interface AuthMapper {
 
   UserRow findById(@Param("id") String id);
 
+  UserRow findBySocialIdentity(
+      @Param("provider") String provider,
+      @Param("providerSubject") String providerSubject);
+
   int insert(UserRow user);
+
+  int insertSocialIdentity(
+      @Param("id") String id,
+      @Param("userId") String userId,
+      @Param("provider") String provider,
+      @Param("providerSubject") String providerSubject,
+      @Param("email") String email);
+
+  int updateSocialIdentityEmail(
+      @Param("provider") String provider,
+      @Param("providerSubject") String providerSubject,
+      @Param("email") String email);
 
   int updateName(@Param("id") String id, @Param("fullName") String fullName);
 

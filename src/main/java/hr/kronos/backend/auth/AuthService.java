@@ -126,6 +126,7 @@ public class AuthService {
   }
 
   private AuthResponse loginOrCreateSocial(SocialIdentity identity, String provider, String fallbackName) {
+    String providerSubject = normalizeProviderSubject(identity.providerSubject());
     String email = normalizeEmail(identity.email());
     if (!isValidEmail(email)) {
       throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Social token email is invalid.");
@@ -139,7 +140,14 @@ public class AuthService {
       name = buildDefaultNameFromEmail(email);
     }
 
-    UserRow user = authMapper.findByEmail(email);
+    UserRow user = authMapper.findBySocialIdentity(provider, providerSubject);
+    if (user != null) {
+      authMapper.updateSocialIdentityEmail(provider, providerSubject, email);
+      updateSocialNameIfNeeded(user, name);
+      return buildAuthResponse(user);
+    }
+
+    user = authMapper.findByEmail(email);
     if (user == null) {
       user = new UserRow();
       user.setId(nextUserId());
@@ -155,12 +163,39 @@ public class AuthService {
           throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already exists.");
         }
       }
-    } else if (!name.equals(user.getFullName())) {
+    } else {
+      updateSocialNameIfNeeded(user, name);
+    }
+
+    user = linkSocialIdentityOrReload(user, provider, providerSubject, email);
+    return buildAuthResponse(user);
+  }
+
+  private UserRow linkSocialIdentityOrReload(UserRow user, String provider, String providerSubject, String email) {
+    try {
+      int inserted =
+          authMapper.insertSocialIdentity(nextSocialIdentityId(), user.getId(), provider, providerSubject, email);
+      if (inserted == 0) {
+        UserRow linkedUser = authMapper.findBySocialIdentity(provider, providerSubject);
+        if (linkedUser != null) {
+          return linkedUser;
+        }
+      }
+    } catch (DuplicateKeyException _) {
+      UserRow linkedUser = authMapper.findBySocialIdentity(provider, providerSubject);
+      if (linkedUser != null) {
+        return linkedUser;
+      }
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Social account is already linked.");
+    }
+    return user;
+  }
+
+  private void updateSocialNameIfNeeded(UserRow user, String name) {
+    if (!name.equals(user.getFullName())) {
       authMapper.updateName(user.getId(), name);
       user.setFullName(name);
     }
-
-    return buildAuthResponse(user);
   }
 
   private AuthResponse buildAuthResponse(UserRow user) {
@@ -192,12 +227,24 @@ public class AuthService {
     return normalized.isBlank() ? null : normalized;
   }
 
+  private String normalizeProviderSubject(String value) {
+    String normalized = value == null ? "" : value.trim();
+    if (normalized.isBlank()) {
+      throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Social token subject is invalid.");
+    }
+    return normalized;
+  }
+
   private boolean isValidEmail(String email) {
     return EMAIL_PATTERN.matcher(email).matches();
   }
 
   private String nextUserId() {
     return "usr_" + UUID.randomUUID().toString().replace("-", "");
+  }
+
+  private String nextSocialIdentityId() {
+    return "sid_" + UUID.randomUUID().toString().replace("-", "");
   }
 
   private String buildDefaultNameFromEmail(String email) {

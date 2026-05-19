@@ -36,6 +36,24 @@
     LIMIT 1
   </select>
 
+  <select id="findBySocialIdentity" resultType="hr.kronos.backend.auth.persistence.UserRow">
+    SELECT
+      u.id,
+      u.email,
+      u.full_name,
+      u.password_hash,
+      u.auth_provider,
+      u.bio,
+      u.avatar_url,
+      u.created_at,
+      u.updated_at
+    FROM user_social_identities usi
+    JOIN app_users u ON u.id = usi.user_id
+    WHERE usi.provider = #{provider}
+      AND usi.provider_subject = #{providerSubject}
+    LIMIT 1
+  </select>
+
   <insert id="insert" parameterType="hr.kronos.backend.auth.persistence.UserRow">
     INSERT INTO app_users (
       id,
@@ -51,6 +69,31 @@
       #{authProvider}
     )
   </insert>
+
+  <insert id="insertSocialIdentity">
+    INSERT INTO user_social_identities (
+      id,
+      user_id,
+      provider,
+      provider_subject,
+      email
+    ) VALUES (
+      #{id},
+      #{userId},
+      #{provider},
+      #{providerSubject},
+      #{email}
+    )
+    ON CONFLICT (provider, provider_subject) DO NOTHING
+  </insert>
+
+  <update id="updateSocialIdentityEmail">
+    UPDATE user_social_identities
+    SET email = #{email},
+        updated_at = NOW()
+    WHERE provider = #{provider}
+      AND provider_subject = #{providerSubject}
+  </update>
 
   <update id="updateName">
     UPDATE app_users
