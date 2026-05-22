@@ -28,4 +28,5 @@ public record CreateEventRequest(
     BigDecimal priceAmount,
     String priceCurrency,
     Integer capacity,
-    List<String> tags) {}
+    List<String> tags,
+    List<EventMediaRequest> media) {}

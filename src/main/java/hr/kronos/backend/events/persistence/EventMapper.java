@@ -36,6 +36,10 @@ public interface EventMapper {
 
   List<EventMediaRow> findMediaByEventIds(@Param("eventIds") List<String> eventIds);
 
+  EventMediaRow findMediaById(@Param("eventId") String eventId, @Param("mediaId") String mediaId);
+
+  long sumStoredMediaBytes();
+
   List<FeedPreferenceRow> findFeedPreferences(@Param("userId") String userId);
 
   List<EventParticipantRow> findParticipantsByEventId(@Param("eventId") String eventId);

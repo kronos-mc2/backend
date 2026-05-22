@@ -1,5 +1,7 @@
 package hr.kronos.backend.api;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import hr.kronos.backend.api.dto.AppEventDto;
 import hr.kronos.backend.api.dto.CreateFeedPreferenceRequest;
 import hr.kronos.backend.api.dto.CreateEventRequest;
@@ -13,6 +15,7 @@ import hr.kronos.backend.api.dto.UpdateEventRequest;
 import hr.kronos.backend.events.EventService;
 import java.util.List;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,16 +25,21 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api")
 public class EventController {
   private final EventService eventService;
+  private final ObjectMapper objectMapper;
 
-  public EventController(EventService eventService) {
+  public EventController(EventService eventService, ObjectMapper objectMapper) {
     this.eventService = eventService;
+    this.objectMapper = objectMapper;
   }
 
   @GetMapping("/events")
@@ -101,11 +109,21 @@ public class EventController {
     return eventService.getUpcomingCreatedByUser(userId, requesterUserId);
   }
 
-  @PostMapping("/events")
+  @PostMapping(value = "/events", consumes = MediaType.APPLICATION_JSON_VALUE)
   @ResponseStatus(HttpStatus.CREATED)
   public AppEventDto createEvent(@RequestBody CreateEventRequest request, Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
     return eventService.createEvent(request, userId);
+  }
+
+  @PostMapping(value = "/events", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+  @ResponseStatus(HttpStatus.CREATED)
+  public AppEventDto createEventWithImages(
+      @RequestPart("event") String eventJson,
+      @RequestPart("images") List<MultipartFile> images,
+      Authentication authentication) {
+    String userId = AuthenticatedUser.userId(authentication);
+    return eventService.createEventWithImages(parseCreateEventRequest(eventJson), images, userId);
   }
 
   @PatchMapping("/events/{id}")
@@ -128,11 +146,18 @@ public class EventController {
     return eventService.getParticipants(id, userId);
   }
 
-  @PostMapping("/events/{id}/media")
+  @PostMapping(value = "/events/{id}/media", consumes = MediaType.APPLICATION_JSON_VALUE)
   public AppEventDto addEventMedia(
       @PathVariable String id, @RequestBody EventMediaRequest request, Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
     return eventService.addMedia(id, request, userId);
+  }
+
+  @PostMapping(value = "/events/{id}/media", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+  public AppEventDto uploadEventMedia(
+      @PathVariable String id, @RequestPart("image") MultipartFile image, Authentication authentication) {
+    String userId = AuthenticatedUser.userId(authentication);
+    return eventService.uploadMedia(id, image, userId);
   }
 
   @DeleteMapping("/events/{id}/media/{mediaId}")
@@ -199,5 +224,13 @@ public class EventController {
       @PathVariable String id, @RequestBody EventRatingRequest request, Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
     return eventService.rateEvent(id, request, userId);
+  }
+
+  private CreateEventRequest parseCreateEventRequest(String eventJson) {
+    try {
+      return objectMapper.readValue(eventJson, CreateEventRequest.class);
+    } catch (JsonProcessingException exception) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "event payload is invalid.", exception);
+    }
   }
 }

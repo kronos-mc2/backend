@@ -5,4 +5,8 @@ public record EventMediaDto(
     String mediaType,
     String url,
     String thumbnailUrl,
+    String fileName,
+    Long byteSize,
+    Integer width,
+    Integer height,
     int sortOrder) {}

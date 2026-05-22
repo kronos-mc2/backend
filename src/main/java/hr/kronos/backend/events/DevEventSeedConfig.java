@@ -10,6 +10,7 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
+import org.springframework.core.annotation.Order;
 
 @Configuration
 @Profile("dev")
@@ -19,6 +20,7 @@ public class DevEventSeedConfig {
   private static final String PRIMARY_MEDIA_SUFFIX = "-media-1";
 
   @Bean
+  @Order(1)
   ApplicationRunner seedPublicEventsForDev(EventMapper eventMapper) {
     return args -> {
       if (eventMapper.countAllEvents() > 0) {

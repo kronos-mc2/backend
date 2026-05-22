@@ -20,6 +20,12 @@ import hr.kronos.backend.events.persistence.EventRow;
 import hr.kronos.backend.events.persistence.FeedPreferenceRow;
 import hr.kronos.backend.messages.MessageService;
 import hr.kronos.backend.payments.persistence.PaymentMapper;
+import hr.kronos.backend.storage.ObjectStorageProperties;
+import hr.kronos.backend.storage.ObjectStorageService;
+import hr.kronos.backend.storage.StoredObject;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
@@ -33,9 +39,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import javax.imageio.ImageIO;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -65,15 +74,27 @@ public class EventService {
   private static final int MAX_FEED_LIMIT = 10;
   private static final int MAX_EVENT_TAGS = 5;
   private static final int MAX_EVENT_TAG_LENGTH = 40;
+  private static final int MAX_EVENT_MEDIA = 5;
+  private static final String CONTENT_TYPE_JPEG = "image/jpeg";
+  private static final String CONTENT_TYPE_PNG = "image/png";
 
   private final EventMapper eventMapper;
   private final MessageService messageService;
   private final PaymentMapper paymentMapper;
+  private final ObjectStorageService objectStorageService;
+  private final ObjectStorageProperties objectStorageProperties;
 
-  public EventService(EventMapper eventMapper, MessageService messageService, PaymentMapper paymentMapper) {
+  public EventService(
+      EventMapper eventMapper,
+      MessageService messageService,
+      PaymentMapper paymentMapper,
+      ObjectStorageService objectStorageService,
+      ObjectStorageProperties objectStorageProperties) {
     this.eventMapper = eventMapper;
     this.messageService = messageService;
     this.paymentMapper = paymentMapper;
+    this.objectStorageService = objectStorageService;
+    this.objectStorageProperties = objectStorageProperties;
   }
 
   public List<AppEventDto> getEvents(
@@ -105,7 +126,7 @@ public class EventService {
     }
 
     String normalizedQuery = trimToNull(query);
-    return eventMapper.findAll(fromDate, toDate, lat, lng, radiusKm, normalizedQuery, userId).stream().map(this::toDto).toList();
+    return toDtosWithMedia(eventMapper.findAll(fromDate, toDate, lat, lng, radiusKm, normalizedQuery, userId));
   }
 
   public FeedPageDto getFeed(String userId, String cursor, Integer limit) {
@@ -134,7 +155,7 @@ public class EventService {
   public List<AppEventDto> getMyEvents(String userId, String filter) {
     markPastEventsFinished();
     String normalizedFilter = normalizeMyEventsFilter(filter);
-    return eventMapper.findByUser(userId, normalizedFilter).stream().map(this::toDto).toList();
+    return toDtosWithMedia(eventMapper.findByUser(userId, normalizedFilter));
   }
 
   public List<AppEventDto> getLikedEvents(String userId) {
@@ -197,8 +218,7 @@ public class EventService {
       eventMapper.incrementParticipantCount(eventId);
     }
 
-    EventRow updated = eventMapper.findById(eventId, userId);
-    return toDto(updated);
+    return getEventById(eventId, userId);
   }
 
   public AppEventDto leaveEvent(String eventId, String userId) {
@@ -213,8 +233,7 @@ public class EventService {
     }
     messageService.leaveEventChatRoom(eventId, userId);
 
-    EventRow updated = eventMapper.findById(eventId, userId);
-    return toDto(updated);
+    return getEventById(eventId, userId);
   }
 
   public AppEventDto rateOrganizer(String eventId, OrganizerRatingRequest request, String userId) {
@@ -344,7 +363,20 @@ public class EventService {
     eventMapper.upsertParticipant(row.getId(), creatorUserId, PARTICIPANT_STATUS_JOINED);
     row.setUserParticipantStatus(PARTICIPANT_STATUS_JOINED);
     row.setTagsCsv(String.join(",", tags));
-    return toDto(row);
+    insertUrlMedia(row.getId(), request.media());
+    return getEventById(row.getId(), creatorUserId);
+  }
+
+  public AppEventDto createEventWithImages(CreateEventRequest request, List<MultipartFile> images, String creatorUserId) {
+    validateUploadedImageCount(images, true);
+    AppEventDto created = createEvent(request, creatorUserId);
+    try {
+      uploadMediaFiles(created.id(), images, creatorUserId);
+    } catch (RuntimeException exception) {
+      eventMapper.delete(created.id());
+      throw exception;
+    }
+    return getEventById(created.id(), creatorUserId);
   }
 
   public AppEventDto updateEvent(String eventId, UpdateEventRequest request, String userId) {
@@ -451,7 +483,9 @@ public class EventService {
 
   public void deleteEvent(String eventId, String userId) {
     requireOwnedEvent(eventId, userId);
+    List<EventMediaRow> media = eventMapper.findMediaByEventId(eventId);
     eventMapper.delete(eventId);
+    deleteStoredObjects(media);
   }
 
   public AppEventDto addMedia(String eventId, EventMediaRequest request, String userId) {
@@ -460,6 +494,7 @@ public class EventService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "url is required.");
     }
 
+    ensureMediaCapacity(eventId, 1);
     String mediaType = normalizeMediaType(request.mediaType());
     EventMediaRow media = new EventMediaRow();
     media.setId("media-" + UUID.randomUUID().toString().replace("-", "").substring(0, 18));
@@ -472,15 +507,182 @@ public class EventService {
     return getEventById(eventId, userId);
   }
 
+  public AppEventDto uploadMedia(String eventId, MultipartFile image, String userId) {
+    uploadMediaFiles(eventId, List.of(image), userId);
+    return getEventById(eventId, userId);
+  }
+
   public AppEventDto deleteMedia(String eventId, String mediaId, String userId) {
     requireOwnedEvent(eventId, userId);
+    List<EventMediaRow> mediaItems = eventMapper.findMediaByEventId(eventId);
+    EventMediaRow media = mediaItems.stream()
+        .filter(item -> item.getId().equals(mediaId))
+        .findFirst()
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "media not found."));
+    if (mediaItems.size() <= 1) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "event must keep at least one image.");
+    }
     eventMapper.deleteMedia(eventId, mediaId);
+    deleteStoredObject(media);
     return getEventById(eventId, userId);
   }
 
   public List<EventParticipantDto> getParticipants(String eventId, String userId) {
     requireOwnedEvent(eventId, userId);
     return eventMapper.findParticipantsByEventId(eventId).stream().map(this::toParticipantDto).toList();
+  }
+
+  private void insertUrlMedia(String eventId, List<EventMediaRequest> mediaRequests) {
+    if (mediaRequests == null || mediaRequests.isEmpty()) {
+      return;
+    }
+    ensureMediaCapacity(eventId, mediaRequests.size());
+    for (EventMediaRequest mediaRequest : mediaRequests) {
+      if (mediaRequest == null || trimToNull(mediaRequest.url()) == null) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "media.url is required.");
+      }
+      EventMediaRow media = new EventMediaRow();
+      media.setId("media-" + UUID.randomUUID().toString().replace("-", "").substring(0, 18));
+      media.setEventId(eventId);
+      media.setMediaType(normalizeMediaType(mediaRequest.mediaType()));
+      media.setUrl(mediaRequest.url().trim());
+      media.setThumbnailUrl(trimToNull(mediaRequest.thumbnailUrl()));
+      media.setOriginalFilename(normalizeOriginalFilename(mediaRequest.fileName()));
+      media.setSortOrder(eventMapper.findMediaByEventId(eventId).size());
+      eventMapper.insertMedia(media);
+    }
+  }
+
+  private void uploadMediaFiles(String eventId, List<MultipartFile> images, String userId) {
+    requireOwnedEvent(eventId, userId);
+    validateUploadedImageCount(images, false);
+    ensureMediaCapacity(eventId, images.size());
+    for (MultipartFile image : images) {
+      EventMediaRow media = buildUploadedImageMedia(eventId, image, eventMapper.findMediaByEventId(eventId).size());
+      eventMapper.insertMedia(media);
+    }
+  }
+
+  private EventMediaRow buildUploadedImageMedia(String eventId, MultipartFile file, int sortOrder) {
+    if (file == null || file.isEmpty()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "image is required.");
+    }
+    try {
+      byte[] bytes = file.getBytes();
+      validateImageFileSize(bytes.length);
+      String contentType = normalizeImageContentType(file.getContentType(), file.getOriginalFilename());
+      BufferedImage image = ImageIO.read(new ByteArrayInputStream(bytes));
+      if (image == null) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "image must be a readable JPEG or PNG file.");
+      }
+      validateImageDimensions(image.getWidth(), image.getHeight());
+      ensureStorageQuota(bytes.length);
+      StoredObject storedObject = objectStorageService.putImage(
+          buildStorageKey(eventId, contentType),
+          bytes,
+          contentType,
+          image.getWidth(),
+          image.getHeight());
+
+      EventMediaRow media = new EventMediaRow();
+      media.setId("media-" + UUID.randomUUID().toString().replace("-", "").substring(0, 18));
+      media.setEventId(eventId);
+      media.setMediaType(MEDIA_TYPE_IMAGE);
+      media.setUrl(storedObject.url());
+      media.setThumbnailUrl(storedObject.url());
+      media.setOriginalFilename(normalizeOriginalFilename(file.getOriginalFilename()));
+      media.setStorageKey(storedObject.storageKey());
+      media.setBucketName(storedObject.bucketName());
+      media.setContentType(storedObject.contentType());
+      media.setByteSize(storedObject.byteSize());
+      media.setWidth(storedObject.width());
+      media.setHeight(storedObject.height());
+      media.setSortOrder(sortOrder);
+      return media;
+    } catch (IOException exception) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "image could not be read.", exception);
+    }
+  }
+
+  private void validateUploadedImageCount(List<MultipartFile> images, boolean requireAtLeastOne) {
+    int count = images == null ? 0 : images.size();
+    if (requireAtLeastOne && count == 0) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "At least one image is required.");
+    }
+    if (count > MAX_EVENT_MEDIA) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "events accept up to " + MAX_EVENT_MEDIA + " images.");
+    }
+  }
+
+  private void ensureMediaCapacity(String eventId, int incomingCount) {
+    int currentCount = eventMapper.findMediaByEventId(eventId).size();
+    if (currentCount + incomingCount > MAX_EVENT_MEDIA) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "events accept up to " + MAX_EVENT_MEDIA + " media items.");
+    }
+  }
+
+  private void validateImageFileSize(int byteSize) {
+    if (byteSize <= 0) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "image is empty.");
+    }
+    if (byteSize > objectStorageProperties.getMaxFileBytes()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "image must be 5 MB or smaller.");
+    }
+  }
+
+  private void validateImageDimensions(int width, int height) {
+    if (width < objectStorageProperties.getMinImageWidth() || height < objectStorageProperties.getMinImageHeight()) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST,
+          "image resolution must be at least "
+              + objectStorageProperties.getMinImageWidth()
+              + "x"
+              + objectStorageProperties.getMinImageHeight()
+              + ".");
+    }
+    if (width > objectStorageProperties.getMaxImageWidth() || height > objectStorageProperties.getMaxImageHeight()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "image resolution is too large.");
+    }
+  }
+
+  private void ensureStorageQuota(int incomingBytes) {
+    long usedBytes = eventMapper.sumStoredMediaBytes();
+    if (usedBytes + incomingBytes > objectStorageProperties.getMaxTotalBytes()) {
+      throw new ResponseStatusException(HttpStatusCode.valueOf(507), "media storage quota is full.");
+    }
+  }
+
+  private String normalizeImageContentType(String contentType, String filename) {
+    String normalized = trimToNull(contentType);
+    if (CONTENT_TYPE_JPEG.equalsIgnoreCase(normalized) || "image/jpg".equalsIgnoreCase(normalized)) {
+      return CONTENT_TYPE_JPEG;
+    }
+    if (CONTENT_TYPE_PNG.equalsIgnoreCase(normalized)) {
+      return CONTENT_TYPE_PNG;
+    }
+    String lowerFilename = filename == null ? "" : filename.toLowerCase(Locale.ROOT);
+    if (lowerFilename.endsWith(".jpg") || lowerFilename.endsWith(".jpeg")) {
+      return CONTENT_TYPE_JPEG;
+    }
+    if (lowerFilename.endsWith(".png")) {
+      return CONTENT_TYPE_PNG;
+    }
+    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "image must be JPEG or PNG.");
+  }
+
+  private String buildStorageKey(String eventId, String contentType) {
+    String extension = CONTENT_TYPE_PNG.equals(contentType) ? "png" : "jpg";
+    return "events/" + eventId + "/" + UUID.randomUUID().toString().replace("-", "") + "." + extension;
+  }
+
+  private void deleteStoredObjects(List<EventMediaRow> media) {
+    for (EventMediaRow mediaRow : media) {
+      deleteStoredObject(mediaRow);
+    }
+  }
+
+  private void deleteStoredObject(EventMediaRow media) {
+    objectStorageService.delete(media.getBucketName(), media.getStorageKey());
   }
 
   public List<EventParticipantDto> approveParticipant(String eventId, String participantUserId, String userId) {
@@ -608,7 +810,16 @@ public class EventService {
   }
 
   private EventMediaDto toMediaDto(EventMediaRow row) {
-    return new EventMediaDto(row.getId(), row.getMediaType(), row.getUrl(), row.getThumbnailUrl(), row.getSortOrder());
+    return new EventMediaDto(
+        row.getId(),
+        row.getMediaType(),
+        row.getUrl(),
+        row.getThumbnailUrl(),
+        row.getOriginalFilename(),
+        row.getByteSize(),
+        row.getWidth(),
+        row.getHeight(),
+        row.getSortOrder());
   }
 
   private Map<String, List<EventMediaDto>> loadMediaByEventIds(List<EventRow> rows) {
@@ -963,6 +1174,23 @@ public class EventService {
       return MEDIA_TYPE_VIDEO;
     }
     throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported media type.");
+  }
+
+  private String normalizeOriginalFilename(String filename) {
+    String normalized = trimToNull(filename);
+    if (normalized == null) {
+      return null;
+    }
+    normalized = normalized.replace('\\', '/');
+    int lastSlashIndex = normalized.lastIndexOf('/');
+    if (lastSlashIndex >= 0) {
+      normalized = normalized.substring(lastSlashIndex + 1);
+    }
+    normalized = normalized.replaceAll("[\\r\\n\\t]", " ").trim();
+    if (normalized.isBlank()) {
+      return null;
+    }
+    return normalized.length() > 255 ? normalized.substring(0, 255) : normalized;
   }
 
   private void validateCommercialFields(String attendanceMode, BigDecimal priceAmount, String priceCurrency, Integer capacity) {

@@ -337,6 +337,13 @@
       media_type,
       url,
       thumbnail_url,
+      original_filename,
+      storage_key,
+      bucket_name,
+      content_type,
+      byte_size,
+      width,
+      height,
       sort_order
     FROM event_media
     WHERE event_id = #{eventId}
@@ -350,6 +357,13 @@
       media_type,
       url,
       thumbnail_url,
+      original_filename,
+      storage_key,
+      bucket_name,
+      content_type,
+      byte_size,
+      width,
+      height,
       sort_order
     FROM event_media
     WHERE event_id IN
@@ -357,6 +371,32 @@
       #{eventId}
     </foreach>
     ORDER BY event_id ASC, sort_order ASC, created_at ASC
+  </select>
+
+  <select id="findMediaById" resultType="hr.kronos.backend.events.persistence.EventMediaRow">
+    SELECT
+      id,
+      event_id,
+      media_type,
+      url,
+      thumbnail_url,
+      original_filename,
+      storage_key,
+      bucket_name,
+      content_type,
+      byte_size,
+      width,
+      height,
+      sort_order
+    FROM event_media
+    WHERE event_id = #{eventId}
+      AND id = #{mediaId}
+  </select>
+
+  <select id="sumStoredMediaBytes" resultType="long">
+    SELECT COALESCE(SUM(byte_size), 0)
+    FROM event_media
+    WHERE storage_key IS NOT NULL
   </select>
 
   <select id="findParticipantsByEventId" resultType="hr.kronos.backend.events.persistence.EventParticipantRow">
@@ -475,6 +515,13 @@
       media_type,
       url,
       thumbnail_url,
+      original_filename,
+      storage_key,
+      bucket_name,
+      content_type,
+      byte_size,
+      width,
+      height,
       sort_order
     ) VALUES (
       #{id},
@@ -482,6 +529,13 @@
       #{mediaType},
       #{url},
       #{thumbnailUrl},
+      #{originalFilename},
+      #{storageKey},
+      #{bucketName},
+      #{contentType},
+      #{byteSize},
+      #{width},
+      #{height},
       #{sortOrder}
     )
   </insert>
