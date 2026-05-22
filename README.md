@@ -132,7 +132,7 @@ You can override with env vars:
 - `DB_PASSWORD`
 - `AUTH_JWT_SECRET`
 - `AUTH_JWT_EXPIRATION_SECONDS` (default je 2592000 sekundi = 30 dana; backend odbija vece vrijednosti)
-- `AUTH_GOOGLE_CLIENT_IDS` (comma-separated Google OAuth audience vrijednosti; za Android/iOS native Google Sign-In obavezno ukljuci Web client ID iz `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`)
+- `AUTH_GOOGLE_CLIENT_IDS` (comma-separated Google OAuth audience vrijednosti; za trenutni native Google Sign-In obavezno stavi Web client ID iz frontend `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`, a ne Android client ID)
 - `AUTH_APPLE_CLIENT_ID` (Apple token audience; za native iOS login ovo treba biti iOS bundle identifier)
 - `PAYMENTS_STUB_ENABLED` (default `true`; Stripe-named provider radi kao lokalni stub bez vanjskog poziva)
 - `STRIPE_PUBLISHABLE_KEY` (publishable key koji frontend moze dobiti u checkout responseu kad se ukljuci realni Stripe flow)
