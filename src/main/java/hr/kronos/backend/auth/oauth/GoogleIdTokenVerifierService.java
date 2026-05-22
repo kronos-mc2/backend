@@ -22,6 +22,7 @@ import org.springframework.web.server.ResponseStatusException;
 public class GoogleIdTokenVerifierService {
   private static final Logger logger = LoggerFactory.getLogger(GoogleIdTokenVerifierService.class);
   private static final String GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs";
+  private static final String GOOGLE_JWKS_HOST = "www.googleapis.com";
   private static final String GOOGLE_ISSUER = "https://accounts.google.com";
 
   private final JwtDecoder jwtDecoder;
@@ -77,6 +78,12 @@ public class GoogleIdTokenVerifierService {
       return new SocialIdentity(providerSubject, email, name);
     } catch (JwtException exception) {
       logger.warn("Google id token verification failed: {}", exception.getMessage());
+      if (OAuthProviderAvailability.isUnavailable(exception, GOOGLE_JWKS_HOST)) {
+        throw new ResponseStatusException(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "Google login provider is temporarily unavailable. Backend cannot reach Google token certificates.",
+            exception);
+      }
       throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid Google token.");
     }
   }

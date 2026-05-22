@@ -20,6 +20,7 @@ import org.springframework.web.server.ResponseStatusException;
 public class AppleIdTokenVerifierService {
   private static final Logger logger = LoggerFactory.getLogger(AppleIdTokenVerifierService.class);
   private static final String APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys";
+  private static final String APPLE_JWKS_HOST = "appleid.apple.com";
   private static final String APPLE_ISSUER = "https://appleid.apple.com";
 
   private final JwtDecoder jwtDecoder;
@@ -74,6 +75,12 @@ public class AppleIdTokenVerifierService {
       return new SocialIdentity(providerSubject, email, jwt.getClaimAsString("name"));
     } catch (JwtException exception) {
       logger.warn("Apple id token verification failed: {}", exception.getMessage());
+      if (OAuthProviderAvailability.isUnavailable(exception, APPLE_JWKS_HOST)) {
+        throw new ResponseStatusException(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "Apple login provider is temporarily unavailable. Backend cannot reach Apple token certificates.",
+            exception);
+      }
       throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid Apple token.");
     }
   }

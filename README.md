@@ -119,6 +119,15 @@ Ocekivani odgovor:
 {"status":"ok"}
 ```
 
+Ako Google login u backend logu padne na dohvat `https://www.googleapis.com/oauth2/v3/certs`, to nije client ID problem nego DNS/egress problem backend containera. Provjeri na Pi-ju:
+
+```bash
+podman exec gik_backend_test getent hosts www.googleapis.com
+podman exec gik_backend_test curl -I https://www.googleapis.com/oauth2/v3/certs
+```
+
+Ako prvi ili drugi poziv padne, popravi DNS/internet za Podman containere pa redeployaj backend. Backend za takav slucaj vraca `503` s porukom da ne moze dohvatiti Google token certificates.
+
 Default DB connection:
 
 - `jdbc:postgresql://localhost:5432/gik`
