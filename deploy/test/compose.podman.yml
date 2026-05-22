@@ -13,6 +13,8 @@ services:
       - gik-test
 
   backend:
+    dns:
+      - 192.168.31.229 #ovdje ide DNS ako ima adguard, ako ne onda moze bez dns
     container_name: gik_backend_test
     build:
       context: ../..
