@@ -60,7 +60,7 @@ services:
       SERVER_PORT: 8080
     depends_on:
       - postgres
-      - minio-init
+      - minio
     expose:
       - "8080"
     networks:
