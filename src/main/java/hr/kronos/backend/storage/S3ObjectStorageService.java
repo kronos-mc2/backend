@@ -11,7 +11,10 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 
 @Service
 public class S3ObjectStorageService implements ObjectStorageService {
@@ -47,6 +50,32 @@ public class S3ObjectStorageService implements ObjectStorageService {
         bytes.length,
         width,
         height);
+  }
+
+  @Override
+  public StoredObjectContent get(String bucketName, String storageKey) {
+    ensureConfigured();
+    if (!hasText(bucketName) || !hasText(storageKey)) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Object not found.");
+    }
+
+    try {
+      var responseBytes = getClient().getObjectAsBytes(
+          GetObjectRequest.builder()
+              .bucket(bucketName.trim())
+              .key(storageKey.trim())
+              .build());
+      GetObjectResponse response = responseBytes.response();
+      return new StoredObjectContent(
+          responseBytes.asByteArray(),
+          response.contentType(),
+          response.contentLength() == null ? responseBytes.asByteArray().length : response.contentLength());
+    } catch (S3Exception exception) {
+      if (exception.statusCode() == HttpStatus.NOT_FOUND.value()) {
+        throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Object not found.", exception);
+      }
+      throw exception;
+    }
   }
 
   @Override

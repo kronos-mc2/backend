@@ -98,22 +98,26 @@ U `backend.env` obavezno promijeni:
 - `DB_PASSWORD` na istu vrijednost kao `POSTGRES_PASSWORD`
 - `AUTH_JWT_SECRET` na dugi random secret
 - `MINIO_ROOT_PASSWORD` i `APP_STORAGE_SECRET_KEY` na istu novu vrijednost
-- `APP_STORAGE_PUBLIC_BASE_URL` na javni HTTPS URL koji mobitel moze dohvatiti, npr. `https://your-media.example.com/gik-event-media`
+- `APP_STORAGE_PUBLIC_BASE_URL` ostavi praznim za standardni authenticated media flow
 
 Storage za test deploy:
 
 - Backend container treba interni endpoint `APP_STORAGE_ENDPOINT=http://minio:9000`.
-- Aplikacija nikad ne smije dobiti interni container URL. `APP_STORAGE_PUBLIC_BASE_URL` mora biti javni URL iza Caddyja ili druge reverse-proxy konfiguracije.
-- Bucket `APP_STORAGE_BUCKET` mora imati public/download policy, inace ce upload raditi, ali prikaz slika u aplikaciji ce padati na `403 AccessDenied`. Compose ima `minio-init` koji radi `mc anonymous set download local/$APP_STORAGE_BUCKET`; ako rucno mijenjas bucket ili MinIO credentials, provjeri policy ponovno:
+- Uploaded event media se aplikaciji vraca kao authenticated backend URL oblika `/api/events/{eventId}/media/{mediaId}/content`; frontend ga ucitava s Bearer tokenom.
+- Bucket `APP_STORAGE_BUCKET` treba biti private. Compose ima `minio-init` koji radi `mc anonymous set none local/$APP_STORAGE_BUCKET`; ako rucno mijenjas bucket ili MinIO credentials, provjeri policy ponovno:
 
 ```bash
-podman exec gik_minio_init_test mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
-podman exec gik_minio_init_test mc anonymous set download "local/$APP_STORAGE_BUCKET"
+podman compose -f deploy/test/compose.podman.yml run --rm --entrypoint /bin/sh minio-init -lc '
+mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" &&
+mc mb --ignore-existing "local/$APP_STORAGE_BUCKET" &&
+mc anonymous set none "local/$APP_STORAGE_BUCKET" &&
+mc anonymous get "local/$APP_STORAGE_BUCKET"
+'
 ```
 
-- Ne moras izlagati MinIO port `9000` direktno na hostu ako koristis Caddy. Backend ga vidi preko compose mreze kao `minio:9000`, a mobitel slike vidi preko `APP_STORAGE_PUBLIC_BASE_URL`.
-- Ako ipak mapiras MinIO portove na host, pazi na konflikt s drugim servisima. Host port moze biti npr. `9100:9000`, ali backend container endpoint i dalje ostaje `http://minio:9000`; javni URL mora pratiti Caddy/host port koji stvarno izlozis.
-- Za Cloudflare R2 kasnije mijenjas samo storage env: endpoint, region/account endpoint, bucket, access/secret key, public base URL i po potrebi `APP_STORAGE_PATH_STYLE_ACCESS`.
+- Ne moras izlagati MinIO port `9000` direktno na hostu. Backend ga vidi preko compose mreze kao `minio:9000`, a mobitel slike vidi preko backend `/api/events/.../media/.../content` endpointa.
+- Ako ipak imas Caddy `/media/*` route iz ranijeg public-bucket setupa, makni ga ili ga ostavi bez public bucket policyja. App ga vise ne treba.
+- Za Cloudflare R2 kasnije mijenjas endpoint, region/account endpoint, bucket, access/secret key i po potrebi `APP_STORAGE_PATH_STYLE_ACCESS`; bucket i dalje moze ostati private jer backend streama media.
 
 Pokretanje kroz Podman Compose:
 
@@ -122,7 +126,7 @@ cd backend
 podman compose -f deploy/test/compose.podman.yml up -d --build
 ```
 
-Caddy reverse-proxyja tvoju test API domenu na backend container i sam izdaje TLS certifikat. U DNS-u record za tu domenu treba pokazivati na javni IP Raspberry Pi-ja, a portovi `80` i `443` moraju biti dostupni prema Pi-ju. Za media slike dodaj zaseban Caddy host ili route koji javni media URL proxyja na MinIO bucket, tako da `APP_STORAGE_PUBLIC_BASE_URL` bude stvarno dohvatljiv iz aplikacije.
+Caddy reverse-proxyja tvoju test API domenu na backend container i sam izdaje TLS certifikat. U DNS-u record za tu domenu treba pokazivati na javni IP Raspberry Pi-ja, a portovi `80` i `443` moraju biti dostupni prema Pi-ju. Media slike idu kroz isti backend API host i ne trebaju zaseban public MinIO route.
 
 Provjera:
 
@@ -168,7 +172,7 @@ You can override with env vars:
 - `APP_NOTIFICATIONS_EXPO_ENDPOINT` / property `app.notifications.expo.endpoint` (default `https://exp.host/--/api/v2/push/send`)
 - `MESSAGES_ENCRYPTION_SECRET` / property `app.messages.encryption.secret` za AES-GCM encryption-at-rest novih text poruka; minimalno 32 znaka. Ako nije postavljen, lokalno se koristi `AUTH_JWT_SECRET` kao kompatibilni fallback.
 - `APP_WEBSOCKET_ALLOWED_ORIGINS` / property `app.websocket.allowed-origins` za WebSocket origin allowlistu; default je `*` za native/local razvoj
-- `APP_STORAGE_ENDPOINT`, `APP_STORAGE_BUCKET`, `APP_STORAGE_ACCESS_KEY`, `APP_STORAGE_SECRET_KEY`, `APP_STORAGE_PUBLIC_BASE_URL` za S3-compatible image storage. Lokalno/testirano cilja MinIO, ali isti sloj radi za Cloudflare R2 endpoint. Default ukupna kvota je 10 GB (`APP_STORAGE_MAX_TOTAL_BYTES`), a upload slike je 5 MB (`APP_STORAGE_MAX_FILE_BYTES`).
+- `APP_STORAGE_ENDPOINT`, `APP_STORAGE_BUCKET`, `APP_STORAGE_ACCESS_KEY`, `APP_STORAGE_SECRET_KEY` za S3-compatible image storage. Lokalno/testirano cilja MinIO, ali isti sloj radi za Cloudflare R2 endpoint. Uploaded media se standardno servira kroz authenticated backend endpoint; `APP_STORAGE_PUBLIC_BASE_URL` ostaje samo legacy/direct URL fallback i ne treba biti postavljen za test deploy. Default ukupna kvota je 10 GB (`APP_STORAGE_MAX_TOTAL_BYTES`), a upload slike je 5 MB (`APP_STORAGE_MAX_FILE_BYTES`).
 
 ## Local MinIO media storage
 
@@ -188,13 +192,13 @@ Napravi bucket `gik-event-media` u MinIO konzoli (`http://localhost:9001`) i pos
 export APP_STORAGE_ENDPOINT=http://localhost:9000
 export APP_STORAGE_REGION=auto
 export APP_STORAGE_BUCKET=gik-event-media
-export APP_STORAGE_PUBLIC_BASE_URL=http://localhost:9000/gik-event-media
+export APP_STORAGE_PUBLIC_BASE_URL=
 export APP_STORAGE_ACCESS_KEY=gikminio
 export APP_STORAGE_SECRET_KEY=gikminio123
 export APP_STORAGE_PATH_STYLE_ACCESS=true
 ```
 
-Kad se backend vrti u containeru, endpoint mora biti interni MinIO host, a `APP_STORAGE_PUBLIC_BASE_URL` mora biti URL koji aplikacija na mobitelu moze dohvatiti.
+Kad se backend vrti u containeru, endpoint mora biti interni MinIO host. Bucket drzi private i pusti da backend provjerava event access prije streamanja slike.
 
 U `dev` profilu backend, ako je baza prazna i postoji `../Gdje-I-Kada-Native/.local/issue-drafts/test-data/events.normalized.csv`, importira lokalne test evente. Ako je storage konfiguriran i lokalne slike postoje, seed ih upload-a u storage; inace koristi source image URL iz CSV-a.
 
@@ -212,6 +216,7 @@ U `dev` profilu backend, ako je baza prazna i postoji `../Gdje-I-Kada-Native/.lo
 - `DELETE /api/events/{id}/participants/{userId}`
 - `POST /api/events/{id}/participants/{userId}/block`
 - `POST /api/events/{id}/media` JSON URL ili multipart `image`
+- `GET /api/events/{id}/media/{mediaId}/content`
 - `DELETE /api/events/{id}/media/{mediaId}`
 - `POST /api/events/{eventId}/ticket-checkout`
 - `POST /api/ticket-orders/{orderId}/confirm`

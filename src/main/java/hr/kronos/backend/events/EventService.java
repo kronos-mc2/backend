@@ -22,6 +22,7 @@ import hr.kronos.backend.messages.MessageService;
 import hr.kronos.backend.payments.persistence.PaymentMapper;
 import hr.kronos.backend.storage.ObjectStorageProperties;
 import hr.kronos.backend.storage.ObjectStorageService;
+import hr.kronos.backend.storage.StoredObjectContent;
 import hr.kronos.backend.storage.StoredObject;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
@@ -54,6 +55,7 @@ public class EventService {
   private static final String DEFAULT_STATUS = STATUS_PUBLISHED;
   private static final String DEFAULT_ATTENDANCE_MODE = "open";
   private static final String DEFAULT_VISIBILITY = "public";
+  private static final String VISIBILITY_FRIENDS = "friends";
   private static final String FIELD_START_AT = "startAt";
   private static final String ATTENDANCE_MODE_PAID = "paid";
   private static final String ATTENDANCE_MODE_WAITLIST = "waitlist";
@@ -314,6 +316,9 @@ public class EventService {
     String visibility = normalizeVisibility(request.visibility());
     String attendanceMode = normalizeAttendanceMode(request.attendanceMode());
     validateCommercialFields(attendanceMode, request.priceAmount(), request.priceCurrency(), request.capacity());
+    if (request.media() != null && !request.media().isEmpty()) {
+      ensurePublicVisibilityForExternalMedia(visibility);
+    }
     List<String> tags = normalizeTags(request.tags());
     LocalizedInput title = localizedInput(request.title(), request.titleHr(), request.titleEn());
     LocalizedInput where = localizedInput(request.where(), request.whereHr(), request.whereEn());
@@ -363,7 +368,7 @@ public class EventService {
     eventMapper.upsertParticipant(row.getId(), creatorUserId, PARTICIPANT_STATUS_JOINED);
     row.setUserParticipantStatus(PARTICIPANT_STATUS_JOINED);
     row.setTagsCsv(String.join(",", tags));
-    insertUrlMedia(row.getId(), request.media());
+    insertUrlMedia(row.getId(), request.media(), visibility);
     return getEventById(row.getId(), creatorUserId);
   }
 
@@ -431,6 +436,7 @@ public class EventService {
     current.setPriceCurrency(priceCurrency);
     current.setCapacity(capacity);
     current.setStatus(normalizeStatus(firstNonBlank(request.status(), current.getStatus())));
+    ensureNoExternalMediaForPrivateVisibility(eventId, current.getVisibility());
 
     eventMapper.update(current);
     syncTags(current.getId(), tags);
@@ -489,10 +495,11 @@ public class EventService {
   }
 
   public AppEventDto addMedia(String eventId, EventMediaRequest request, String userId) {
-    requireOwnedEvent(eventId, userId);
+    EventRow event = requireOwnedEvent(eventId, userId);
     if (request == null || trimToNull(request.url()) == null) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "url is required.");
     }
+    ensurePublicVisibilityForExternalMedia(event.getVisibility());
 
     ensureMediaCapacity(eventId, 1);
     String mediaType = normalizeMediaType(request.mediaType());
@@ -505,6 +512,18 @@ public class EventService {
     media.setSortOrder(eventMapper.findMediaByEventId(eventId).size());
     eventMapper.insertMedia(media);
     return getEventById(eventId, userId);
+  }
+
+  public StoredObjectContent getMediaContent(String eventId, String mediaId, String userId) {
+    EventRow event = getAccessibleEvent(eventId, userId);
+    EventMediaRow media = eventMapper.findMediaById(event.getId(), mediaId);
+    if (media == null || trimToNull(media.getStorageKey()) == null) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Media not found.");
+    }
+
+    StoredObjectContent content = objectStorageService.get(resolveBucketName(media), media.getStorageKey());
+    String contentType = firstNonBlank(media.getContentType(), firstNonBlank(content.contentType(), defaultContentType(media.getMediaType())));
+    return new StoredObjectContent(content.bytes(), contentType, content.contentLength());
   }
 
   public AppEventDto uploadMedia(String eventId, MultipartFile image, String userId) {
@@ -532,10 +551,11 @@ public class EventService {
     return eventMapper.findParticipantsByEventId(eventId).stream().map(this::toParticipantDto).toList();
   }
 
-  private void insertUrlMedia(String eventId, List<EventMediaRequest> mediaRequests) {
+  private void insertUrlMedia(String eventId, List<EventMediaRequest> mediaRequests, String visibility) {
     if (mediaRequests == null || mediaRequests.isEmpty()) {
       return;
     }
+    ensurePublicVisibilityForExternalMedia(visibility);
     ensureMediaCapacity(eventId, mediaRequests.size());
     for (EventMediaRequest mediaRequest : mediaRequests) {
       if (mediaRequest == null || trimToNull(mediaRequest.url()) == null) {
@@ -810,11 +830,13 @@ public class EventService {
   }
 
   private EventMediaDto toMediaDto(EventMediaRow row) {
+    String url = mediaUrl(row, row.getUrl());
+    String thumbnailUrl = mediaUrl(row, firstNonBlank(row.getThumbnailUrl(), row.getUrl()));
     return new EventMediaDto(
         row.getId(),
         row.getMediaType(),
-        row.getUrl(),
-        row.getThumbnailUrl(),
+        url,
+        thumbnailUrl,
         row.getOriginalFilename(),
         row.getByteSize(),
         row.getWidth(),
@@ -831,6 +853,45 @@ public class EventService {
     }
 
     return mediaByEventId;
+  }
+
+  private String mediaUrl(EventMediaRow row, String fallbackUrl) {
+    if (trimToNull(row.getStorageKey()) != null) {
+      return "/api/events/" + row.getEventId() + "/media/" + row.getId() + "/content";
+    }
+    return fallbackUrl;
+  }
+
+  private String resolveBucketName(EventMediaRow media) {
+    return firstNonBlank(media.getBucketName(), objectStorageProperties.getBucket());
+  }
+
+  private String defaultContentType(String mediaType) {
+    if (MEDIA_TYPE_IMAGE.equals(mediaType)) {
+      return CONTENT_TYPE_JPEG;
+    }
+    return "application/octet-stream";
+  }
+
+  private void ensureNoExternalMediaForPrivateVisibility(String eventId, String visibility) {
+    if (!VISIBILITY_FRIENDS.equals(visibility)) {
+      return;
+    }
+    boolean hasExternalMedia = eventMapper.findMediaByEventId(eventId).stream()
+        .anyMatch(media -> trimToNull(media.getStorageKey()) == null);
+    if (hasExternalMedia) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT,
+          "Friends-only events can only use uploaded media because external URL media cannot be privacy protected.");
+    }
+  }
+
+  private void ensurePublicVisibilityForExternalMedia(String visibility) {
+    if (VISIBILITY_FRIENDS.equals(visibility)) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST,
+          "Friends-only events require uploaded media; external media URLs cannot be privacy protected.");
+    }
   }
 
   private EventRow requireJoinableEvent(String eventId, String userId, boolean requirePaidReceipt) {

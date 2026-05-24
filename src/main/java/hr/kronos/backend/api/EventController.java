@@ -13,9 +13,13 @@ import hr.kronos.backend.api.dto.FeedPageDto;
 import hr.kronos.backend.api.dto.OrganizerRatingRequest;
 import hr.kronos.backend.api.dto.UpdateEventRequest;
 import hr.kronos.backend.events.EventService;
+import hr.kronos.backend.storage.StoredObjectContent;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -158,6 +162,19 @@ public class EventController {
       @PathVariable String id, @RequestPart("image") MultipartFile image, Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
     return eventService.uploadMedia(id, image, userId);
+  }
+
+  @GetMapping("/events/{id}/media/{mediaId}/content")
+  public ResponseEntity<byte[]> getEventMediaContent(
+      @PathVariable String id, @PathVariable String mediaId, Authentication authentication) {
+    String userId = AuthenticatedUser.userId(authentication);
+    StoredObjectContent content = eventService.getMediaContent(id, mediaId, userId);
+    return ResponseEntity.ok()
+        .contentType(MediaType.parseMediaType(content.contentType()))
+        .contentLength(content.contentLength())
+        .cacheControl(CacheControl.maxAge(5, TimeUnit.MINUTES).cachePrivate())
+        .header("X-Content-Type-Options", "nosniff")
+        .body(content.bytes());
   }
 
   @DeleteMapping("/events/{id}/media/{mediaId}")

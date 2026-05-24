@@ -498,8 +498,8 @@ public class MessageService {
 
     String coverUrl = eventMapper.findMediaByEventId(eventId).stream()
         .findFirst()
-        .map(EventMediaRow::getThumbnailUrl)
-        .orElseGet(() -> eventMapper.findMediaByEventId(eventId).stream().findFirst().map(EventMediaRow::getUrl).orElse(null));
+        .map(this::eventMediaUrl)
+        .orElse(null);
 
     return new EventSharePreviewDto(
         event.getId(),
@@ -508,6 +508,13 @@ public class MessageService {
         new LocalizedTextDto(event.getAboutHr(), event.getAboutEn()),
         timestamp(event.getStartAt() == null ? event.getWhenIso() : event.getStartAt()),
         coverUrl);
+  }
+
+  private String eventMediaUrl(EventMediaRow row) {
+    if (trimToNull(row.getStorageKey()) != null) {
+      return "/api/events/" + row.getEventId() + "/media/" + row.getId() + "/content";
+    }
+    return firstNonBlank(row.getThumbnailUrl(), row.getUrl(), null);
   }
 
   private PollOptionDto toPollOptionDto(PollOptionRow row) {
