@@ -32,6 +32,14 @@ public class SocialController {
     return socialService.getFriends(userId);
   }
 
+  @GetMapping("/events/{eventId}/share-recipients")
+  public List<FriendDto> getEventShareRecipients(
+      @PathVariable String eventId,
+      Authentication authentication) {
+    String userId = AuthenticatedUser.userId(authentication);
+    return socialService.getShareableFriendsForEvent(eventId, userId);
+  }
+
   @PostMapping("/friend-requests")
   @ResponseStatus(HttpStatus.CREATED)
   public FriendRequestDto createFriendRequest(

@@ -200,7 +200,7 @@ export APP_STORAGE_PATH_STYLE_ACCESS=true
 
 Kad se backend vrti u containeru, endpoint mora biti interni MinIO host. Bucket drzi private i pusti da backend provjerava event access prije streamanja slike.
 
-U `dev` profilu backend, ako je baza prazna i postoji `../Gdje-I-Kada-Native/.local/issue-drafts/test-data/events.normalized.csv`, importira lokalne test evente. Ako je storage konfiguriran i lokalne slike postoje, seed ih upload-a u storage; inace koristi source image URL iz CSV-a.
+U `dev` profilu backend, ako je baza prazna i postoji `../Gdje-I-Kada-Native/.local/issue-drafts/test-data/events.normalized.csv`, importira lokalne test evente. Ako je storage konfiguriran i lokalne slike postoje, seed ih upload-a u storage; inace koristi source image URL iz CSV-a. Originalni source page iz CSV-a sprema se u `events.source_url` i vraca kao `sourceUrl` u event DTO-u, bez lijepljenja linka u opis.
 
 ## API routes
 
@@ -239,8 +239,10 @@ U `dev` profilu backend, ako je baza prazna i postoji `../Gdje-I-Kada-Native/.lo
 - `PATCH /api/users/me/notifications/preferences`
 - `POST /api/users/me/notifications/push-tokens`
 - `DELETE /api/users/me/notifications/push-tokens?token=`
-- `GET /api/feed?cursor=&limit=`
+- `GET /api/feed?cursor=&limit=&seed=`
+- `POST /api/feed/impressions`
 - `GET /api/social/friends`
+- `GET /api/social/events/{eventId}/share-recipients`
 - `POST /api/social/friend-requests`
 - `PATCH /api/social/friend-requests/{id}`
 - `GET /api/messages/chat-rooms?query=`
@@ -263,17 +265,21 @@ U `dev` profilu backend, ako je baza prazna i postoji `../Gdje-I-Kada-Native/.lo
 - `POST /api/auth/apple`
 - `GET /api/auth/me`
 
-Napomena: `/api/events` i `/api/feed` vracaju samo evente gdje je `visibility = public`.
+Napomena: `/api/events`, `/api/feed`, event details i authenticated media content koriste isti event access model. Public published eventi su vidljivi svima, a friends-only published eventi su vidljivi samo kreatoru i prihvacenim prijateljima kreatora. Korisnici bez tog accessa ne dobivaju ni event ni njegove media zapise.
 Svi `/api/**` endpointi (osim javnih auth endpointa) traze `Authorization: Bearer <token>`.
 `POST /api/events` prihvaca canonical single-language polja `title`, `where`, `about` i opcionalni `entryInstructions`; backend ih sprema u postojece HR/EN stupce. Stara `titleHr/titleEn`, `whereHr/whereEn`, `aboutHr/aboutEn` i `entryInstructionsHr/entryInstructionsEn` polja ostaju podrzana radi kompatibilnosti.
 Event response DTO dodatno vraca `creatorName` i `creatorAvatarUrl` iz `app_users` kad creator postoji, kako map/feed/details klijenti mogu prikazati organizatora bez dodatnog profila requesta.
-Event response DTO vraca i `tags`, a `POST/PATCH /api/events` prihvaca do 5 tagova. `GET/POST/DELETE /api/users/me/feed-preferences` sprema FYP `Not interested` preference po eventu, kreatoru ili tagu; `/api/feed` i discovery liste ih filtriraju server-side.
+Event response DTO vraca `sourceUrl` za vanjske/importirane evente. Migracija `V18__event_external_source_url.sql` dodaje `events.source_url` i premjesta legacy `Izvor:`/`Source:` link iz opisa u zasebno polje.
+Event response DTO vraca i `tags`, a `POST/PATCH /api/events` prihvaca do 5 tagova. `GET/POST/DELETE /api/users/me/feed-preferences` sprema FYP `Not interested` preference po eventu, kreatoru ili tagu; `/api/feed` i discovery liste ih filtriraju server-side. `/api/feed` prima `seed` za stabilan random redoslijed po ulasku u FYP, vraca samo buduce published evente dostupne korisniku i koristi `event_feed_impressions` kako bi eventi s vise prikaza bez interakcije pali nize u feedu. `POST /api/feed/impressions` povecava prikaze, a like/join/share/not-interested oznacavaju interakciju.
 Owner-only event management endpointi dopustaju creatoru update/delete eventa, media URL management, multipart image upload, pregled/prihvacanje waitliste, micanje sudionika i blokiranje korisnika s neplacenog eventa. Image upload prihvaca JPG/PNG, najvise 5 slika po eventu, 5 MB po slici, minimalno 640x640 px za korisnicki upload i globalnu storage kvotu od 10 GB po backend konfiguraciji. Owner remove sprema participant status `rejected`, block dodatno sprema `event_blocks`, a backend zapisuje in-app `app_notifications` za approve/remove/block. Blokirani korisnici vise ne vide event kroz map/feed/list discovery i ne mogu ga ponovno joinati; profil/kalendar mogu prikazati status `blocked`.
-`POST /api/events/{id}/ratings/full` sprema odvojenu ocjenu/komentar za event u `event_ratings` i ocjenu/komentar za organizatora u `event_organizer_ratings`. Backend scheduler oznacava `published` evente kao `finished` jedan dan nakon `end_at/start_at/when_iso`.
+`POST /api/events/{id}/join` odbija prosle evente i kad scheduler jos nije prebacio status u `finished`. `POST /api/events/{id}/ratings` sprema organizer rating za korisnike koji su bili `joined/approved` na prosli ili zavrseni event; frontend taj AVG organizer rating koristi u event details summaryju. `POST /api/events/{id}/ratings/full` ostaje kompatibilan endpoint za spremanje odvojenih event/organizer ocjena. Backend scheduler oznacava `published` evente kao `finished` jedan dan nakon `end_at/start_at/when_iso`.
 `GET /api/locations/search` proxyja Nominatim/OpenStreetMap location autocomplete s limitom, localeom, opcionalnom proximity koordinatom i kratkim in-memory cacheom; koristi se u frontend create event address flowu.
 
-`GET /api/messages/chat-rooms` vraca samo sobe u kojima je trenutni korisnik clan kroz `chat_members`; legacy seed razgovori `c1/c2/c3` se brisu migracijom `V6__remove_legacy_mock_chats.sql`.
+`GET /api/social/friends` vraca prihvacene prijatelje trenutnog korisnika ukljucujuci `avatarUrl`. `GET /api/social/events/{eventId}/share-recipients` prvo provjerava da korisnik smije vidjeti event, zatim za public evente vraca korisnikove prijatelje, a za friends-only evente vraca samo korisnikove prijatelje koji su prijatelji kreatora eventa ili samog kreatora ako je korisniku prijatelj.
+
+`GET /api/messages/chat-rooms` vraca samo sobe u kojima je trenutni korisnik clan kroz `chat_members`; legacy seed razgovori `c1/c2/c3` se brisu migracijom `V6__remove_legacy_mock_chats.sql`. Last-message preview za text poruke dekodira encrypted-at-rest zapis prije slanja DTO-a, pa chat lista prikazuje stvarni tekst umjesto generickog labela.
 Chat room/member/message DTO-ovi vracaju `avatarUrl` iz `app_users.avatar_url`; direct roomovi dodatno vracaju `directUserId` za dohvat buducih eventova sugovornika. Direct chatovi ignoriraju `adminOnly` i oba korisnika mogu pisati. Chat room DTO vraca i `mutedByMe`, a `PATCH /api/messages/chat-rooms/{id}/notification-settings` sprema per-chat mute u `chat_notification_mutes`.
+`POST /api/messages/chat-rooms/{id}/share-event` za friends-only evente dodatno provjerava sve clanove sobe: creator smije biti u sobi, a svaki drugi clan mora imati prihvacen friendship s kreatorom eventa. Ako uvjet nije ispunjen, endpoint vraca `403` i ne kreira event share poruku.
 Google/Apple login verificira id token na backendu, provjerava issuer/audience/email verification, sprema provider `sub` u `user_social_identities` i tek tada izdaje nas JWT. Nove text poruke se spremaju encrypted-at-rest u `messages.encrypted_body` + `encryption_nonce` kroz AES-GCM; stari plaintext `body` ostaje fallback za postojece zapise. `POST /api/social/friend-requests` kreira friend request i ubacuje posebnu chat poruku u direct room, a `PATCH /api/social/friend-requests/{id}` prihvaca ili odbija request.
 
 Poruke salju Expo push notifikacije nakon uspjesnog REST writea (`text`, `event_share`, `poll`). Primatelji se filtriraju server-side prema `user_notification_preferences`, `chat_notification_mutes`, clanstvu u sobi i aktivnim `user_push_tokens`; posiljatelj se nikad ne obavjestava. `user_push_tokens.locale` cuva HR/EN jezik uredaja za fallback tekst push poruke, Android payload ide na `messages` channel, a Expo `DeviceNotRegistered` odgovor automatski disablea taj token.

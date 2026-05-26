@@ -31,6 +31,7 @@ public class EventRow {
   private String priceCurrency;
   private Integer capacity;
   private String status;
+  private String sourceUrl;
   private BigDecimal eventRatingAverage;
   private int eventRatingCount;
   private BigDecimal organizerRatingAverage;
@@ -256,6 +257,14 @@ public class EventRow {
 
   public void setStatus(String status) {
     this.status = status;
+  }
+
+  public String getSourceUrl() {
+    return sourceUrl;
+  }
+
+  public void setSourceUrl(String sourceUrl) {
+    this.sourceUrl = sourceUrl;
   }
 
   public BigDecimal getEventRatingAverage() {

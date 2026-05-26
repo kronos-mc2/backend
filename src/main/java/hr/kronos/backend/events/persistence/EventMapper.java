@@ -18,8 +18,8 @@ public interface EventMapper {
 
   List<EventRow> findFeedPage(
       @Param("userId") String userId,
-      @Param("cursorStartAt") OffsetDateTime cursorStartAt,
-      @Param("cursorId") String cursorId,
+      @Param("seed") String seed,
+      @Param("offset") int offset,
       @Param("limit") int limit);
 
   EventRow findById(@Param("id") String id, @Param("userId") String userId);
@@ -66,6 +66,10 @@ public interface EventMapper {
       @Param("targetLabel") String targetLabel);
 
   int deleteFeedPreference(@Param("preferenceId") String preferenceId, @Param("userId") String userId);
+
+  int recordFeedImpression(@Param("eventId") String eventId, @Param("userId") String userId);
+
+  int markFeedInteraction(@Param("eventId") String eventId, @Param("userId") String userId);
 
   int update(EventRow event);
 

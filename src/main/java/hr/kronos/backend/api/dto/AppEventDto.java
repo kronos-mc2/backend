@@ -28,6 +28,7 @@ public record AppEventDto(
     String priceCurrency,
     Integer capacity,
     String status,
+    String sourceUrl,
     java.math.BigDecimal eventRatingAverage,
     int eventRatingCount,
     BigDecimal organizerRatingAverage,

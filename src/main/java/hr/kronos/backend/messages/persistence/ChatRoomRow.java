@@ -16,6 +16,10 @@ public class ChatRoomRow {
   private String directUserId;
   private String subtitle;
   private String lastMessage;
+  private String lastMessageType;
+  private String lastMessageBody;
+  private String lastMessageEncryptedBody;
+  private String lastMessageEncryptionNonce;
   private OffsetDateTime lastMessageAt;
   private String timeLabel;
   private Integer unreadCount;
@@ -134,6 +138,38 @@ public class ChatRoomRow {
 
   public void setLastMessage(String lastMessage) {
     this.lastMessage = lastMessage;
+  }
+
+  public String getLastMessageType() {
+    return lastMessageType;
+  }
+
+  public void setLastMessageType(String lastMessageType) {
+    this.lastMessageType = lastMessageType;
+  }
+
+  public String getLastMessageBody() {
+    return lastMessageBody;
+  }
+
+  public void setLastMessageBody(String lastMessageBody) {
+    this.lastMessageBody = lastMessageBody;
+  }
+
+  public String getLastMessageEncryptedBody() {
+    return lastMessageEncryptedBody;
+  }
+
+  public void setLastMessageEncryptedBody(String lastMessageEncryptedBody) {
+    this.lastMessageEncryptedBody = lastMessageEncryptedBody;
+  }
+
+  public String getLastMessageEncryptionNonce() {
+    return lastMessageEncryptionNonce;
+  }
+
+  public void setLastMessageEncryptionNonce(String lastMessageEncryptionNonce) {
+    this.lastMessageEncryptionNonce = lastMessageEncryptionNonce;
   }
 
   public OffsetDateTime getLastMessageAt() {

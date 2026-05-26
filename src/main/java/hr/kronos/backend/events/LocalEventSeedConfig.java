@@ -68,8 +68,9 @@ public class LocalEventSeedConfig {
     row.setWhereHr(event.venue());
     row.setWhereEn(event.venue());
     row.setAddress(event.address());
-    row.setAboutHr("Lokalni test event importiran iz CSV-a. Izvor: " + event.sourceUrl());
-    row.setAboutEn("Local test event imported from CSV. Source: " + event.sourceUrl());
+    row.setAboutHr("Lokalni test event importiran iz CSV-a.");
+    row.setAboutEn("Local test event imported from CSV.");
+    row.setSourceUrl(event.sourceUrl());
     OffsetDateTime startAt = OffsetDateTime.parse(event.startAt());
     row.setWhenIso(startAt);
     row.setStartAt(startAt);

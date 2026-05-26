@@ -32,6 +32,7 @@
     e.price_currency,
     e.capacity,
     e.status,
+    e.source_url,
     e.event_rating_average,
     e.event_rating_count,
     e.organizer_rating_average,
@@ -70,14 +71,20 @@
   <sql id="accessibleEventPredicate">
     (
       (e.visibility = 'public' AND e.status = 'published')
-      OR e.creator_user_id = #{userId}
-      OR EXISTS (
-        SELECT 1
-        FROM event_participants ep_access
-        WHERE ep_access.event_id = e.id
-          AND ep_access.user_id = #{userId}
-          AND ep_access.status IN ('joined', 'approved', 'waitlisted', 'rejected')
+      OR (
+        e.visibility = 'friends'
+        AND e.status = 'published'
+        AND EXISTS (
+          SELECT 1
+          FROM friend_requests fr_access
+          WHERE fr_access.status = 'accepted'
+            AND (
+              (fr_access.requester_user_id = #{userId} AND fr_access.recipient_user_id = e.creator_user_id)
+              OR (fr_access.recipient_user_id = #{userId} AND fr_access.requester_user_id = e.creator_user_id)
+            )
+        )
       )
+      OR e.creator_user_id = #{userId}
     )
   </sql>
 
@@ -133,8 +140,7 @@
     LEFT JOIN event_participants ep
       ON ep.event_id = e.id
       AND ep.user_id = #{userId}
-    WHERE e.visibility = 'public'
-      AND e.status = 'published'
+    WHERE <include refid="accessibleEventPredicate" />
       AND <include refid="notBlockedPredicate" />
       AND <include refid="feedPreferencePredicate" />
       <if test="from != null">
@@ -167,7 +173,8 @@
       <if test="lat != null and lng != null">
         <include refid="distanceExpression" /> ASC,
       </if>
-      e.start_at ASC
+      COALESCE(e.start_at, e.when_iso) ASC,
+      e.id ASC
   </select>
 
   <select id="findFeedPage" resultType="hr.kronos.backend.events.persistence.EventRow">
@@ -179,18 +186,21 @@
     LEFT JOIN event_participants ep
       ON ep.event_id = e.id
       AND ep.user_id = #{userId}
-    WHERE e.visibility = 'public'
+    LEFT JOIN event_feed_impressions efi
+      ON efi.event_id = e.id
+      AND efi.user_id = #{userId}
+    WHERE <include refid="accessibleEventPredicate" />
       AND e.status = 'published'
+      AND COALESCE(e.start_at, e.when_iso) &gt;= NOW()
       AND <include refid="notBlockedPredicate" />
       AND <include refid="feedPreferencePredicate" />
-      <if test="cursorStartAt != null and cursorId != null">
-        AND (
-          e.start_at &lt; #{cursorStartAt}
-          OR (e.start_at = #{cursorStartAt} AND e.id &lt; #{cursorId})
-        )
-      </if>
-    ORDER BY e.start_at DESC, e.id DESC
+    ORDER BY
+      COALESCE(CASE WHEN efi.interacted_at IS NULL THEN efi.shown_count ELSE 0 END, 0) ASC,
+      MD5(#{seed} || ':' || e.id) ASC,
+      COALESCE(e.start_at, e.when_iso) ASC,
+      e.id ASC
     LIMIT #{limit}
+    OFFSET #{offset}
   </select>
 
   <select id="findFeedPreferences" resultType="hr.kronos.backend.events.persistence.FeedPreferenceRow">
@@ -261,7 +271,7 @@
     LEFT JOIN event_participants ep
       ON ep.event_id = e.id
       AND ep.user_id = #{userId}
-    WHERE
+    WHERE (
       <choose>
         <when test="filter == 'created'">
           e.creator_user_id = #{userId}
@@ -286,6 +296,8 @@
           )
         </otherwise>
       </choose>
+      )
+      AND <include refid="accessibleEventPredicate" />
     ORDER BY e.start_at ASC
   </select>
 
@@ -469,6 +481,7 @@
       price_currency,
       capacity,
       status,
+      source_url,
       event_rating_average,
       event_rating_count,
       organizer_rating_average,
@@ -500,6 +513,7 @@
       #{priceCurrency},
       #{capacity},
       #{status},
+      #{sourceUrl},
       COALESCE(#{eventRatingAverage,jdbcType=NUMERIC}, 0),
       #{eventRatingCount},
       COALESCE(#{organizerRatingAverage,jdbcType=NUMERIC}, 0),
@@ -581,6 +595,41 @@
     WHERE id = #{preferenceId}
       AND user_id = #{userId}
   </delete>
+
+  <insert id="recordFeedImpression">
+    INSERT INTO event_feed_impressions (
+      user_id,
+      event_id,
+      shown_count,
+      last_shown_at
+    ) VALUES (
+      #{userId},
+      #{eventId},
+      1,
+      NOW()
+    )
+    ON CONFLICT (user_id, event_id)
+    DO UPDATE SET
+      shown_count = event_feed_impressions.shown_count + 1,
+      last_shown_at = NOW(),
+      updated_at = NOW()
+  </insert>
+
+  <insert id="markFeedInteraction">
+    INSERT INTO event_feed_impressions (
+      user_id,
+      event_id,
+      interacted_at
+    ) VALUES (
+      #{userId},
+      #{eventId},
+      NOW()
+    )
+    ON CONFLICT (user_id, event_id)
+    DO UPDATE SET
+      interacted_at = NOW(),
+      updated_at = NOW()
+  </insert>
 
   <update id="update" parameterType="hr.kronos.backend.events.persistence.EventRow">
     UPDATE events

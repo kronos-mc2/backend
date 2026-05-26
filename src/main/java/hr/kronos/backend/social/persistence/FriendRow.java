@@ -3,6 +3,7 @@ package hr.kronos.backend.social.persistence;
 public class FriendRow {
   private String id;
   private String name;
+  private String avatarUrl;
   private String statusHr;
   private String statusEn;
 
@@ -20,6 +21,14 @@ public class FriendRow {
 
   public void setName(String name) {
     this.name = name;
+  }
+
+  public String getAvatarUrl() {
+    return avatarUrl;
+  }
+
+  public void setAvatarUrl(String avatarUrl) {
+    this.avatarUrl = avatarUrl;
   }
 
   public String getStatusHr() {

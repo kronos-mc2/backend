@@ -84,12 +84,6 @@
         WHERE rating.event_id = e.id
           AND rating.rater_user_id = #{userId}
       )
-      AND NOT EXISTS (
-        SELECT 1
-        FROM event_ratings event_rating
-        WHERE event_rating.event_id = e.id
-          AND event_rating.rater_user_id = #{userId}
-      )
     ORDER BY COALESCE(e.end_at, e.start_at, e.when_iso) DESC, e.id DESC
   </select>
 

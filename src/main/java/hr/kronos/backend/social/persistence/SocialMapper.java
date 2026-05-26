@@ -10,6 +10,10 @@ public interface SocialMapper {
 
   List<FriendRow> findFriendsForUser(@Param("userId") String userId);
 
+  List<FriendRow> findShareableFriendsForEvent(
+      @Param("userId") String userId,
+      @Param("creatorUserId") String creatorUserId);
+
   FriendRequestRow findFriendRequest(@Param("id") String id);
 
   FriendRequestRow findFriendRequestBetween(@Param("leftUserId") String leftUserId, @Param("rightUserId") String rightUserId);

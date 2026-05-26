@@ -5,9 +5,12 @@ import hr.kronos.backend.api.dto.FriendDto;
 import hr.kronos.backend.api.dto.FriendRequestDto;
 import hr.kronos.backend.api.dto.LocalizedTextDto;
 import hr.kronos.backend.auth.persistence.AuthMapper;
+import hr.kronos.backend.events.persistence.EventMapper;
+import hr.kronos.backend.events.persistence.EventRow;
 import hr.kronos.backend.messages.MessageService;
 import hr.kronos.backend.messages.persistence.MessageMapper;
 import hr.kronos.backend.social.persistence.FriendRequestRow;
+import hr.kronos.backend.social.persistence.FriendRow;
 import hr.kronos.backend.social.persistence.SocialMapper;
 import java.util.List;
 import java.util.UUID;
@@ -17,31 +20,59 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class SocialService {
+  private static final String VISIBILITY_FRIENDS = "friends";
+
   private final SocialMapper socialMapper;
   private final AuthMapper authMapper;
+  private final EventMapper eventMapper;
   private final MessageMapper messageMapper;
   private final MessageService messageService;
 
   public SocialService(
       SocialMapper socialMapper,
       AuthMapper authMapper,
+      EventMapper eventMapper,
       MessageMapper messageMapper,
       MessageService messageService) {
     this.socialMapper = socialMapper;
     this.authMapper = authMapper;
+    this.eventMapper = eventMapper;
     this.messageMapper = messageMapper;
     this.messageService = messageService;
   }
 
   public List<FriendDto> getFriends() {
     return socialMapper.findFriends().stream()
-        .map(row -> new FriendDto(row.getId(), row.getName(), new LocalizedTextDto(row.getStatusHr(), row.getStatusEn())))
+        .map(this::toFriendDto)
         .toList();
   }
 
   public List<FriendDto> getFriends(String userId) {
     return socialMapper.findFriendsForUser(userId).stream()
-        .map(row -> new FriendDto(row.getId(), row.getName(), new LocalizedTextDto(row.getStatusHr(), row.getStatusEn())))
+        .map(this::toFriendDto)
+        .toList();
+  }
+
+  public List<FriendDto> getShareableFriendsForEvent(String eventId, String userId) {
+    EventRow event = eventMapper.findAccessibleById(eventId, userId);
+    if (event == null) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found.");
+    }
+
+    if (!VISIBILITY_FRIENDS.equals(event.getVisibility())) {
+      return getFriends(userId);
+    }
+
+    String creatorUserId = trimToNull(event.getCreatorUserId());
+    if (creatorUserId == null) {
+      return List.of();
+    }
+    if (creatorUserId.equals(userId)) {
+      return getFriends(userId);
+    }
+
+    return socialMapper.findShareableFriendsForEvent(userId, creatorUserId).stream()
+        .map(this::toFriendDto)
         .toList();
   }
 
@@ -109,6 +140,14 @@ public class SocialService {
         row.getChatRoomId(),
         row.getCreatedAt() == null ? null : row.getCreatedAt().toString(),
         row.getRespondedAt() == null ? null : row.getRespondedAt().toString());
+  }
+
+  private FriendDto toFriendDto(FriendRow row) {
+    return new FriendDto(
+        row.getId(),
+        row.getName(),
+        row.getAvatarUrl(),
+        new LocalizedTextDto(row.getStatusHr(), row.getStatusEn()));
   }
 
   private String trimToNull(String value) {

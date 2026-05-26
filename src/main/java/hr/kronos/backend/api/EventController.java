@@ -8,6 +8,7 @@ import hr.kronos.backend.api.dto.CreateEventRequest;
 import hr.kronos.backend.api.dto.EventMediaRequest;
 import hr.kronos.backend.api.dto.EventParticipantDto;
 import hr.kronos.backend.api.dto.EventRatingRequest;
+import hr.kronos.backend.api.dto.FeedImpressionRequest;
 import hr.kronos.backend.api.dto.FeedPreferenceDto;
 import hr.kronos.backend.api.dto.FeedPageDto;
 import hr.kronos.backend.api.dto.OrganizerRatingRequest;
@@ -69,9 +70,17 @@ public class EventController {
   public FeedPageDto getFeed(
       @RequestParam(required = false) String cursor,
       @RequestParam(required = false) Integer limit,
+      @RequestParam(required = false) String seed,
       Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.getFeed(userId, cursor, limit);
+    return eventService.getFeed(userId, cursor, limit, seed);
+  }
+
+  @PostMapping("/feed/impressions")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  public void recordFeedImpression(@RequestBody FeedImpressionRequest request, Authentication authentication) {
+    String userId = AuthenticatedUser.userId(authentication);
+    eventService.recordFeedImpression(request, userId);
   }
 
   @GetMapping("/users/me/events")

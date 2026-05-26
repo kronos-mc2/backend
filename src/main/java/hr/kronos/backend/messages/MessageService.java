@@ -55,6 +55,7 @@ public class MessageService {
   private static final String ROOM_TYPE_GROUP = "group";
   private static final String MEMBER_ROLE_MEMBER = "member";
   private static final String MEMBER_ROLE_OWNER = "owner";
+  private static final String VISIBILITY_FRIENDS = "friends";
   private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
 
   private final MessageMapper messageMapper;
@@ -292,9 +293,11 @@ public class MessageService {
     if (event == null) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found.");
     }
+    requireRoomCanReceiveEventShare(roomId, event);
 
     ChatMessageRow message = newMessage(roomId, userId, "event_share", null, eventId, null, null);
     messageMapper.insertMessage(message);
+    eventMapper.markFeedInteraction(eventId, userId);
     messageMapper.touchRoom(roomId);
     updateLegacyConversationPreview(roomId, event);
     ChatMessageDto messageDto = toMessageDto(messageMapper.findMessageById(message.getId(), userId), userId);
@@ -431,6 +434,31 @@ public class MessageService {
     }
   }
 
+  private void requireRoomCanReceiveEventShare(String roomId, EventRow event) {
+    if (!VISIBILITY_FRIENDS.equals(event.getVisibility())) {
+      return;
+    }
+
+    String creatorUserId = trimToNull(event.getCreatorUserId());
+    if (creatorUserId == null) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Friends-only event cannot be shared.");
+    }
+
+    for (ChatMemberRow member : messageMapper.findMembersForRoom(roomId)) {
+      String memberUserId = member.getUserId();
+      if (creatorUserId.equals(memberUserId)) {
+        continue;
+      }
+
+      FriendRequestRow friendship = socialMapper.findFriendRequestBetween(creatorUserId, memberUserId);
+      if (friendship == null || !"accepted".equals(friendship.getStatus())) {
+        throw new ResponseStatusException(
+            HttpStatus.FORBIDDEN,
+            "Friends-only events can be shared only with friends of the event creator.");
+      }
+    }
+  }
+
   private ChatRoomDto toRoomDto(ChatRoomRow row, List<ChatMemberDto> members) {
     return new ChatRoomDto(
         row.getId(),
@@ -439,7 +467,7 @@ public class MessageService {
         row.getAvatarUrl(),
         row.getDirectUserId(),
         row.getSubtitle(),
-        row.getLastMessage(),
+        resolveLastMessagePreview(row),
         timestamp(row.getLastMessageAt()),
         row.getTimeLabel(),
         row.getUnreadCount() == null ? 0 : row.getUnreadCount(),
@@ -471,6 +499,20 @@ public class MessageService {
         row.getEventId() == null ? null : toEventSharePreview(row.getEventId(), userId),
         row.getPollId() == null ? null : toPollDto(messageMapper.findPollById(row.getPollId()), userId),
         row.getFriendRequestId() == null ? null : toFriendRequestDto(socialMapper.findFriendRequest(row.getFriendRequestId())));
+  }
+
+  private String resolveLastMessagePreview(ChatRoomRow row) {
+    if ("text".equals(row.getLastMessageType())) {
+      return firstNonBlank(
+          messageEncryptionService.decrypt(
+              row.getLastMessageEncryptedBody(),
+              row.getLastMessageEncryptionNonce(),
+              row.getLastMessageBody()),
+          row.getLastMessage(),
+          "Poruka");
+    }
+
+    return row.getLastMessage();
   }
 
   private PollDto toPollDto(PollRow poll, String userId) {

@@ -8,6 +8,7 @@
     SELECT
       id,
       name,
+      NULL AS avatar_url,
       status_hr,
       status_en
     FROM friends
@@ -18,6 +19,7 @@
     SELECT
       other_user.id,
       other_user.full_name AS name,
+      other_user.avatar_url,
       'Prijatelj' AS status_hr,
       'Friend' AS status_en
     FROM friend_requests fr
@@ -28,6 +30,36 @@
       END
     WHERE fr.status = 'accepted'
       AND (fr.requester_user_id = #{userId} OR fr.recipient_user_id = #{userId})
+    ORDER BY other_user.full_name ASC
+  </select>
+
+  <select id="findShareableFriendsForEvent" resultType="hr.kronos.backend.social.persistence.FriendRow">
+    SELECT
+      other_user.id,
+      other_user.full_name AS name,
+      other_user.avatar_url,
+      'Prijatelj' AS status_hr,
+      'Friend' AS status_en
+    FROM friend_requests fr
+    INNER JOIN app_users other_user
+      ON other_user.id = CASE
+        WHEN fr.requester_user_id = #{userId} THEN fr.recipient_user_id
+        ELSE fr.requester_user_id
+      END
+    WHERE fr.status = 'accepted'
+      AND (fr.requester_user_id = #{userId} OR fr.recipient_user_id = #{userId})
+      AND (
+        other_user.id = #{creatorUserId}
+        OR EXISTS (
+          SELECT 1
+          FROM friend_requests creator_fr
+          WHERE creator_fr.status = 'accepted'
+            AND (
+              (creator_fr.requester_user_id = #{creatorUserId} AND creator_fr.recipient_user_id = other_user.id)
+              OR (creator_fr.recipient_user_id = #{creatorUserId} AND creator_fr.requester_user_id = other_user.id)
+            )
+        )
+      )
     ORDER BY other_user.full_name ASC
   </select>
 

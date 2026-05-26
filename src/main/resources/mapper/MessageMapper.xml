@@ -69,6 +69,10 @@
       END,
       'Nema poruka jos.'
     ) AS last_message,
+    lm.message_type AS last_message_type,
+    lm.body AS last_message_body,
+    lm.encrypted_body AS last_message_encrypted_body,
+    lm.encryption_nonce AS last_message_encryption_nonce,
     lm.created_at AS last_message_at,
     COALESCE(TO_CHAR(lm.created_at, 'HH24:MI'), TO_CHAR(cr.updated_at, 'HH24:MI')) AS time_label,
     (
