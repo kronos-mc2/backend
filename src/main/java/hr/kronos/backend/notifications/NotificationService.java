@@ -6,6 +6,7 @@ import hr.kronos.backend.api.dto.ChatMessageDto;
 import hr.kronos.backend.api.dto.NotificationPreferencesDto;
 import hr.kronos.backend.api.dto.RegisterPushTokenRequest;
 import hr.kronos.backend.api.dto.UpdateNotificationPreferencesRequest;
+import hr.kronos.backend.messages.realtime.ChatRealtimeSessionRegistry;
 import hr.kronos.backend.messages.persistence.MessageMapper;
 import hr.kronos.backend.notifications.persistence.NotificationMapper;
 import hr.kronos.backend.notifications.persistence.NotificationPreferencesRow;
@@ -40,6 +41,7 @@ public class NotificationService {
   private final MessageMapper messageMapper;
   private final ObjectMapper objectMapper;
   private final HttpClient httpClient;
+  private final ChatRealtimeSessionRegistry chatRealtimeSessionRegistry;
   private final boolean pushEnabled;
   private final String expoPushEndpoint;
 
@@ -47,11 +49,13 @@ public class NotificationService {
       NotificationMapper notificationMapper,
       MessageMapper messageMapper,
       ObjectMapper objectMapper,
+      ChatRealtimeSessionRegistry chatRealtimeSessionRegistry,
       @Value("${app.notifications.push.enabled:true}") boolean pushEnabled,
       @Value("${app.notifications.expo.endpoint:https://exp.host/--/api/v2/push/send}") String expoPushEndpoint) {
     this.notificationMapper = notificationMapper;
     this.messageMapper = messageMapper;
     this.objectMapper = objectMapper;
+    this.chatRealtimeSessionRegistry = chatRealtimeSessionRegistry;
     this.pushEnabled = pushEnabled;
     this.expoPushEndpoint = expoPushEndpoint;
     this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(4)).build();
@@ -137,7 +141,9 @@ public class NotificationService {
     }
 
     List<PushNotificationRecipientRow> recipients =
-        notificationMapper.findPushRecipientsForChatMessage(roomId, senderUserId);
+        notificationMapper.findPushRecipientsForChatMessage(roomId, senderUserId).stream()
+            .filter(recipient -> !chatRealtimeSessionRegistry.hasOpenSession(recipient.getUserId()))
+            .toList();
     if (recipients.isEmpty()) {
       return;
     }

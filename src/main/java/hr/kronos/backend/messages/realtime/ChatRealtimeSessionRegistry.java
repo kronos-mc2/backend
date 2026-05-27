@@ -58,6 +58,23 @@ public class ChatRealtimeSessionRegistry {
     }
   }
 
+  public boolean hasOpenSession(String userId) {
+    Set<WebSocketSession> sessions = sessionsByUserId.get(userId);
+    if (sessions == null || sessions.isEmpty()) {
+      return false;
+    }
+
+    boolean hasOpenSession = false;
+    for (WebSocketSession session : sessions) {
+      if (session.isOpen()) {
+        hasOpenSession = true;
+      } else {
+        unregister(session);
+      }
+    }
+    return hasOpenSession;
+  }
+
   private void send(WebSocketSession session, TextMessage message) {
     if (!session.isOpen()) {
       unregister(session);
