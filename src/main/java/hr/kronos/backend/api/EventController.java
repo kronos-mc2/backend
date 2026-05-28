@@ -12,6 +12,7 @@ import hr.kronos.backend.api.dto.FeedImpressionRequest;
 import hr.kronos.backend.api.dto.FeedPreferenceDto;
 import hr.kronos.backend.api.dto.FeedPageDto;
 import hr.kronos.backend.api.dto.OrganizerRatingRequest;
+import hr.kronos.backend.api.dto.SavedEventsOverviewDto;
 import hr.kronos.backend.api.dto.UpdateEventRequest;
 import hr.kronos.backend.events.EventService;
 import hr.kronos.backend.storage.StoredObjectContent;
@@ -97,6 +98,12 @@ public class EventController {
   public List<AppEventDto> getLikedEvents(Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
     return eventService.getLikedEvents(userId);
+  }
+
+  @GetMapping("/users/me/saved-events/overview")
+  public SavedEventsOverviewDto getSavedEventsOverview(Authentication authentication) {
+    String userId = AuthenticatedUser.userId(authentication);
+    return eventService.getSavedEventsOverview(userId);
   }
 
   @GetMapping("/users/me/feed-preferences")

@@ -229,6 +229,7 @@ U `dev` profilu backend, ako je baza prazna i postoji `../Gdje-I-Kada-Native/.lo
 - `DELETE /api/events/{id}/like`
 - `GET /api/users/me/events`
 - `GET /api/users/me/liked-events`
+- `GET /api/users/me/saved-events/overview`
 - `GET /api/users/me/feed-preferences`
 - `POST /api/users/me/feed-preferences`
 - `DELETE /api/users/me/feed-preferences/{preferenceId}`

@@ -297,7 +297,17 @@
         </otherwise>
       </choose>
       )
-      AND <include refid="accessibleEventPredicate" />
+      AND (
+        <include refid="accessibleEventPredicate" />
+        OR e.creator_user_id = #{userId}
+        OR ep.status IN ('joined', 'approved', 'waitlisted', 'rejected')
+        OR EXISTS (
+          SELECT 1
+          FROM event_blocks eb_user_access
+          WHERE eb_user_access.event_id = e.id
+            AND eb_user_access.user_id = #{userId}
+        )
+      )
     ORDER BY e.start_at ASC
   </select>
 

@@ -13,6 +13,7 @@ import hr.kronos.backend.api.dto.FeedPreferenceDto;
 import hr.kronos.backend.api.dto.FeedPageDto;
 import hr.kronos.backend.api.dto.LocalizedTextDto;
 import hr.kronos.backend.api.dto.OrganizerRatingRequest;
+import hr.kronos.backend.api.dto.SavedEventsOverviewDto;
 import hr.kronos.backend.api.dto.UpdateEventRequest;
 import hr.kronos.backend.events.persistence.EventMapper;
 import hr.kronos.backend.events.persistence.EventMediaRow;
@@ -75,6 +76,9 @@ public class EventService {
   private static final String STATUS_FINISHED = "finished";
   private static final int DEFAULT_FEED_LIMIT = 5;
   private static final int MAX_FEED_LIMIT = 10;
+  private static final int SAVED_COLLECTION_PREVIEW_LIMIT = 12;
+  private static final int SAVED_GOING_SOON_LIMIT = 3;
+  private static final int SAVED_PAST_LIMIT = 3;
   private static final int MAX_FEED_SEED_LENGTH = 80;
   private static final int MAX_EVENT_TAGS = 5;
   private static final int MAX_EVENT_TAG_LENGTH = 40;
@@ -178,6 +182,33 @@ public class EventService {
 
   public List<AppEventDto> getLikedEvents(String userId) {
     return toDtosWithMedia(eventMapper.findLikedByUser(userId));
+  }
+
+  public SavedEventsOverviewDto getSavedEventsOverview(String userId) {
+    markPastEventsFinished();
+    List<AppEventDto> likedEvents =
+        toDtosWithMedia(eventMapper.findLikedByUser(userId)).stream()
+            .limit(SAVED_COLLECTION_PREVIEW_LIMIT)
+            .toList();
+
+    OffsetDateTime now = OffsetDateTime.now();
+    List<AppEventDto> joinedEvents = toDtosWithMedia(eventMapper.findByUser(userId, MY_EVENTS_FILTER_JOINED));
+    List<AppEventDto> goingSoon =
+        joinedEvents.stream()
+            .filter(this::isActiveAttendance)
+            .filter(event -> !eventStart(event).isBefore(now))
+            .sorted((left, right) -> eventStart(left).compareTo(eventStart(right)))
+            .limit(SAVED_GOING_SOON_LIMIT)
+            .toList();
+    List<AppEventDto> pastEvents =
+        joinedEvents.stream()
+            .filter(this::isActiveAttendance)
+            .filter(event -> eventStart(event).isBefore(now))
+            .sorted((left, right) -> eventStart(right).compareTo(eventStart(left)))
+            .limit(SAVED_PAST_LIMIT)
+            .toList();
+
+    return new SavedEventsOverviewDto(likedEvents, goingSoon, pastEvents);
   }
 
   public List<FeedPreferenceDto> getFeedPreferences(String userId) {
@@ -1159,6 +1190,14 @@ public class EventService {
 
   private boolean isJoinedByMe(String status) {
     return PARTICIPANT_STATUS_JOINED.equals(status) || PARTICIPANT_STATUS_APPROVED.equals(status) || PARTICIPANT_STATUS_WAITLISTED.equals(status);
+  }
+
+  private boolean isActiveAttendance(AppEventDto event) {
+    return PARTICIPANT_STATUS_JOINED.equals(event.attendanceStatus()) || PARTICIPANT_STATUS_APPROVED.equals(event.attendanceStatus());
+  }
+
+  private OffsetDateTime eventStart(AppEventDto event) {
+    return parseWhenIso(firstNonBlank(event.startAt(), event.whenISO()), FIELD_START_AT);
   }
 
   @Scheduled(fixedDelayString = "PT1H")
