@@ -60,9 +60,11 @@ public class EventController {
       @RequestParam(required = false) Double lng,
       @RequestParam(required = false) Double radiusKm,
       @RequestParam(required = false) String query,
+      @RequestParam(required = false) String tags,
+      @RequestParam(required = false) String attendanceModes,
       Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.getEvents(from, to, lat, lng, radiusKm, query, userId);
+    return eventService.getEvents(from, to, lat, lng, radiusKm, query, tags, attendanceModes, userId);
   }
 
   @GetMapping("/events/{id}")

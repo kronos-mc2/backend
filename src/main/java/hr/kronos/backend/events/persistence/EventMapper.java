@@ -14,6 +14,8 @@ public interface EventMapper {
       @Param("lng") Double lng,
       @Param("radiusKm") Double radiusKm,
       @Param("query") String query,
+      @Param("tags") List<String> tags,
+      @Param("attendanceModes") List<String> attendanceModes,
       @Param("userId") String userId);
 
   List<EventRow> findFeedPage(

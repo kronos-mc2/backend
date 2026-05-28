@@ -80,8 +80,7 @@ public class EventService {
   private static final int SAVED_GOING_SOON_LIMIT = 3;
   private static final int SAVED_PAST_LIMIT = 3;
   private static final int MAX_FEED_SEED_LENGTH = 80;
-  private static final int MAX_EVENT_TAGS = 5;
-  private static final int MAX_EVENT_TAG_LENGTH = 40;
+  private static final int MAX_EVENT_TAGS = 10;
   private static final int MAX_EVENT_IMAGES = 5;
   private static final int MAX_EVENT_VIDEOS = 1;
   private static final String CONTENT_TYPE_JPEG = "image/jpeg";
@@ -116,10 +115,16 @@ public class EventService {
       Double lng,
       Double radiusKm,
       String query,
+      String tags,
+      String attendanceModes,
       String userId) {
     markPastEventsFinished();
+    OffsetDateTime now = OffsetDateTime.now();
     OffsetDateTime fromDate = parseOptionalWhenIso(from, "from");
     OffsetDateTime toDate = parseOptionalWhenIso(to, "to");
+    if (fromDate == null || fromDate.isBefore(now)) {
+      fromDate = now;
+    }
 
     if (fromDate != null && toDate != null && toDate.isBefore(fromDate)) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "to must be after from.");
@@ -138,7 +143,19 @@ public class EventService {
     }
 
     String normalizedQuery = trimToNull(query);
-    return toDtosWithMedia(eventMapper.findAll(fromDate, toDate, lat, lng, radiusKm, normalizedQuery, userId));
+    List<String> normalizedTags = normalizeFilterTags(tags);
+    List<String> normalizedAttendanceModes = normalizeAttendanceModeFilter(attendanceModes);
+    return toDtosWithMedia(
+        eventMapper.findAll(
+            fromDate,
+            toDate,
+            lat,
+            lng,
+            radiusKm,
+            normalizedQuery,
+            normalizedTags,
+            normalizedAttendanceModes,
+            userId));
   }
 
   public FeedPageDto getFeed(String userId, String cursor, Integer limit, String seed) {
@@ -1324,10 +1341,17 @@ public class EventService {
     }
 
     LinkedHashSet<String> normalized = new LinkedHashSet<>();
+    Map<String, Integer> categoryCounts = new HashMap<>();
     for (String rawTag : rawTags) {
-      String tag = normalizeTag(rawTag);
-      if (tag != null) {
-        normalized.add(tag);
+      EventTagCatalog.TagDefinition tag = normalizeTag(rawTag);
+      if (tag != null && normalized.add(tag.tag())) {
+        int nextCategoryCount = categoryCounts.getOrDefault(tag.categoryId(), 0) + 1;
+        if (nextCategoryCount > EventTagCatalog.MAX_TAGS_PER_CATEGORY) {
+          throw new ResponseStatusException(
+              HttpStatus.BAD_REQUEST,
+              "events accept up to " + EventTagCatalog.MAX_TAGS_PER_CATEGORY + " tags per category.");
+        }
+        categoryCounts.put(tag.categoryId(), nextCategoryCount);
       }
     }
 
@@ -1338,7 +1362,7 @@ public class EventService {
     return new ArrayList<>(normalized);
   }
 
-  private String normalizeTag(String value) {
+  private EventTagCatalog.TagDefinition normalizeTag(String value) {
     String normalized = trimToNull(value);
     if (normalized == null) {
       return null;
@@ -1348,11 +1372,54 @@ public class EventService {
     if (normalized.isEmpty()) {
       return null;
     }
-    if (normalized.length() > MAX_EVENT_TAG_LENGTH) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "tags must be at most " + MAX_EVENT_TAG_LENGTH + " characters.");
+    String unsupportedTag = normalized;
+    return EventTagCatalog.find(normalized)
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported event tag: " + unsupportedTag));
+  }
+
+  private List<String> normalizeFilterTags(String rawTags) {
+    String normalizedRawTags = trimToNull(rawTags);
+    if (normalizedRawTags == null) {
+      return List.of();
     }
 
-    return normalized;
+    LinkedHashSet<String> normalized = new LinkedHashSet<>();
+    for (String rawTag : normalizedRawTags.split(",")) {
+      EventTagCatalog.TagDefinition tag = normalizeTag(rawTag);
+      if (tag != null) {
+        normalized.add(tag.tag().toLowerCase(Locale.ROOT));
+      }
+    }
+    return new ArrayList<>(normalized);
+  }
+
+  private List<String> normalizeAttendanceModeFilter(String rawAttendanceModes) {
+    String normalizedRawAttendanceModes = trimToNull(rawAttendanceModes);
+    if (normalizedRawAttendanceModes == null) {
+      return List.of();
+    }
+
+    LinkedHashSet<String> normalized = new LinkedHashSet<>();
+    for (String rawAttendanceMode : normalizedRawAttendanceModes.split(",")) {
+      if (trimToNull(rawAttendanceMode) != null) {
+        normalized.add(normalizeAttendanceModeFilterValue(rawAttendanceMode));
+      }
+    }
+    return new ArrayList<>(normalized);
+  }
+
+  private String normalizeAttendanceModeFilterValue(String attendanceMode) {
+    String normalized = trimToNull(attendanceMode);
+    if (ATTENDANCE_MODE_WAITLIST.equalsIgnoreCase(normalized)) {
+      return ATTENDANCE_MODE_WAITLIST;
+    }
+    if (ATTENDANCE_MODE_PAID.equalsIgnoreCase(normalized)) {
+      return ATTENDANCE_MODE_PAID;
+    }
+    if (DEFAULT_ATTENDANCE_MODE.equalsIgnoreCase(normalized)) {
+      return DEFAULT_ATTENDANCE_MODE;
+    }
+    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported attendance mode filter.");
   }
 
   private List<String> tagsFromRow(EventRow row) {

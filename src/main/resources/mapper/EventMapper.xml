@@ -166,6 +166,23 @@
           )
         )
       </if>
+      <if test="tags != null and tags.size > 0">
+        AND EXISTS (
+          SELECT 1
+          FROM event_tags et_filter
+          WHERE et_filter.event_id = e.id
+            AND LOWER(et_filter.tag) IN
+            <foreach collection="tags" item="tag" open="(" separator="," close=")">
+              #{tag}
+            </foreach>
+        )
+      </if>
+      <if test="attendanceModes != null and attendanceModes.size > 0">
+        AND e.attendance_mode IN
+        <foreach collection="attendanceModes" item="attendanceMode" open="(" separator="," close=")">
+          #{attendanceMode}
+        </foreach>
+      </if>
       <if test="lat != null and lng != null and radiusKm != null">
         AND <include refid="distanceExpression" /> &lt;= #{radiusKm}
       </if>
