@@ -15,9 +15,12 @@ import hr.kronos.backend.api.dto.OrganizerRatingRequest;
 import hr.kronos.backend.api.dto.UpdateEventRequest;
 import hr.kronos.backend.events.EventService;
 import hr.kronos.backend.storage.StoredObjectContent;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -28,6 +31,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
@@ -134,9 +138,10 @@ public class EventController {
   public AppEventDto createEventWithImages(
       @RequestPart("event") String eventJson,
       @RequestPart("images") List<MultipartFile> images,
+      @RequestPart(value = "video", required = false) MultipartFile video,
       Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.createEventWithImages(parseCreateEventRequest(eventJson), images, userId);
+    return eventService.createEventWithImages(parseCreateEventRequest(eventJson), images, video, userId);
   }
 
   @PatchMapping("/events/{id}")
@@ -168,22 +173,64 @@ public class EventController {
 
   @PostMapping(value = "/events/{id}/media", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
   public AppEventDto uploadEventMedia(
-      @PathVariable String id, @RequestPart("image") MultipartFile image, Authentication authentication) {
+      @PathVariable String id,
+      @RequestPart(value = "image", required = false) MultipartFile image,
+      @RequestPart(value = "video", required = false) MultipartFile video,
+      Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.uploadMedia(id, image, userId);
+    return eventService.uploadMedia(id, image, video, userId);
+  }
+
+  @PostMapping(
+      value = "/events/{id}/media/video",
+      consumes = {MediaType.APPLICATION_OCTET_STREAM_VALUE, "video/mp4", "video/quicktime", "video/x-m4v"})
+  public AppEventDto uploadEventVideoBytes(
+      @PathVariable String id,
+      @RequestBody byte[] bytes,
+      @RequestHeader(value = HttpHeaders.CONTENT_TYPE, required = false) String contentType,
+      @RequestHeader(value = "X-File-Name", required = false) String filename,
+      Authentication authentication) {
+    String userId = AuthenticatedUser.userId(authentication);
+    return eventService.uploadVideoBytes(id, bytes, contentType, decodeHeaderValue(filename), userId);
   }
 
   @GetMapping("/events/{id}/media/{mediaId}/content")
   public ResponseEntity<byte[]> getEventMediaContent(
-      @PathVariable String id, @PathVariable String mediaId, Authentication authentication) {
+      @PathVariable String id,
+      @PathVariable String mediaId,
+      @RequestHeader(value = HttpHeaders.RANGE, required = false) String rangeHeader,
+      Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
     StoredObjectContent content = eventService.getMediaContent(id, mediaId, userId);
+    ByteRange byteRange = parseByteRange(rangeHeader, content.contentLength());
+    if (byteRange != null) {
+      byte[] body = slice(content.bytes(), byteRange.start(), byteRange.end());
+      return ResponseEntity.status(HttpStatus.PARTIAL_CONTENT)
+          .contentType(MediaType.parseMediaType(content.contentType()))
+          .contentLength(body.length)
+          .cacheControl(CacheControl.maxAge(5, TimeUnit.MINUTES).cachePrivate())
+          .header("X-Content-Type-Options", "nosniff")
+          .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+          .header(HttpHeaders.CONTENT_RANGE, "bytes " + byteRange.start() + "-" + byteRange.end() + "/" + content.contentLength())
+          .body(body);
+    }
     return ResponseEntity.ok()
         .contentType(MediaType.parseMediaType(content.contentType()))
         .contentLength(content.contentLength())
         .cacheControl(CacheControl.maxAge(5, TimeUnit.MINUTES).cachePrivate())
         .header("X-Content-Type-Options", "nosniff")
+        .header(HttpHeaders.ACCEPT_RANGES, "bytes")
         .body(content.bytes());
+  }
+
+  @GetMapping("/events/{id}/media/{mediaId}/content/{filename}")
+  public ResponseEntity<byte[]> getEventMediaContentWithFilename(
+      @PathVariable String id,
+      @PathVariable String mediaId,
+      @PathVariable String filename,
+      @RequestHeader(value = HttpHeaders.RANGE, required = false) String rangeHeader,
+      Authentication authentication) {
+    return getEventMediaContent(id, mediaId, rangeHeader, authentication);
   }
 
   @DeleteMapping("/events/{id}/media/{mediaId}")
@@ -259,4 +306,50 @@ public class EventController {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "event payload is invalid.", exception);
     }
   }
+
+  private String decodeHeaderValue(String value) {
+    if (value == null || value.isBlank()) {
+      return value;
+    }
+    return URLDecoder.decode(value, StandardCharsets.UTF_8);
+  }
+
+  private static ByteRange parseByteRange(String rangeHeader, long contentLength) {
+    if (rangeHeader == null || !rangeHeader.startsWith("bytes=") || contentLength <= 0) {
+      return null;
+    }
+    String range = rangeHeader.substring("bytes=".length()).trim();
+    int separatorIndex = range.indexOf('-');
+    if (separatorIndex < 0 || range.indexOf(',') >= 0) {
+      return null;
+    }
+    try {
+      String startText = range.substring(0, separatorIndex).trim();
+      String endText = range.substring(separatorIndex + 1).trim();
+      if (startText.isEmpty()) {
+        long suffixLength = Long.parseLong(endText);
+        if (suffixLength <= 0) {
+          return null;
+        }
+        long start = Math.max(0, contentLength - suffixLength);
+        return new ByteRange(start, contentLength - 1);
+      }
+      long start = Long.parseLong(startText);
+      long end = endText.isEmpty() ? contentLength - 1 : Long.parseLong(endText);
+      if (start < 0 || end < start || start >= contentLength) {
+        return null;
+      }
+      return new ByteRange(start, Math.min(end, contentLength - 1));
+    } catch (NumberFormatException exception) {
+      return null;
+    }
+  }
+
+  private static byte[] slice(byte[] bytes, long start, long end) {
+    int from = Math.toIntExact(start);
+    int toExclusive = Math.toIntExact(end + 1);
+    return java.util.Arrays.copyOfRange(bytes, from, toExclusive);
+  }
+
+  private record ByteRange(long start, long end) {}
 }

@@ -34,6 +34,15 @@ public class S3ObjectStorageService implements ObjectStorageService {
 
   @Override
   public StoredObject putImage(String key, byte[] bytes, String contentType, int width, int height) {
+    return putObject(key, bytes, contentType, width, height);
+  }
+
+  @Override
+  public StoredObject putObject(String key, byte[] bytes, String contentType) {
+    return putObject(key, bytes, contentType, null, null);
+  }
+
+  private StoredObject putObject(String key, byte[] bytes, String contentType, Integer width, Integer height) {
     ensureConfigured();
     PutObjectRequest request = PutObjectRequest.builder()
         .bucket(properties.getBucket().trim())

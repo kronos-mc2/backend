@@ -16,6 +16,7 @@ public class ObjectStorageProperties {
   private boolean pathStyleAccess = true;
   private long maxTotalBytes = 10L * 1024L * 1024L * 1024L;
   private long maxFileBytes = 5L * 1024L * 1024L;
+  private long maxVideoBytes = 10L * 1024L * 1024L;
   private int minImageWidth = 640;
   private int minImageHeight = 640;
   private int maxImageWidth = 8000;
@@ -99,6 +100,14 @@ public class ObjectStorageProperties {
 
   public void setMaxFileBytes(long maxFileBytes) {
     this.maxFileBytes = maxFileBytes;
+  }
+
+  public long getMaxVideoBytes() {
+    return maxVideoBytes;
+  }
+
+  public void setMaxVideoBytes(long maxVideoBytes) {
+    this.maxVideoBytes = maxVideoBytes;
   }
 
   public int getMinImageWidth() {

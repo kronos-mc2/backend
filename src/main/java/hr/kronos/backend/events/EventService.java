@@ -78,9 +78,13 @@ public class EventService {
   private static final int MAX_FEED_SEED_LENGTH = 80;
   private static final int MAX_EVENT_TAGS = 5;
   private static final int MAX_EVENT_TAG_LENGTH = 40;
-  private static final int MAX_EVENT_MEDIA = 5;
+  private static final int MAX_EVENT_IMAGES = 5;
+  private static final int MAX_EVENT_VIDEOS = 1;
   private static final String CONTENT_TYPE_JPEG = "image/jpeg";
   private static final String CONTENT_TYPE_PNG = "image/png";
+  private static final String CONTENT_TYPE_MP4 = "video/mp4";
+  private static final String CONTENT_TYPE_QUICKTIME = "video/quicktime";
+  private static final String CONTENT_TYPE_M4V = "video/x-m4v";
 
   private final EventMapper eventMapper;
   private final MessageService messageService;
@@ -392,13 +396,21 @@ public class EventService {
     return getEventById(row.getId(), creatorUserId);
   }
 
-  public AppEventDto createEventWithImages(CreateEventRequest request, List<MultipartFile> images, String creatorUserId) {
+  public AppEventDto createEventWithImages(
+      CreateEventRequest request,
+      List<MultipartFile> images,
+      MultipartFile video,
+      String creatorUserId) {
     validateUploadedImageCount(images, true);
+    validateUploadedVideoCount(video == null || video.isEmpty() ? 0 : 1);
     AppEventDto created = createEvent(request, creatorUserId);
     try {
-      uploadMediaFiles(created.id(), images, creatorUserId);
+      uploadImageFiles(created.id(), images, creatorUserId);
+      uploadVideoFile(created.id(), video, creatorUserId);
     } catch (RuntimeException exception) {
+      List<EventMediaRow> uploadedMedia = eventMapper.findMediaByEventId(created.id());
       eventMapper.delete(created.id());
+      deleteStoredObjects(uploadedMedia);
       throw exception;
     }
     return getEventById(created.id(), creatorUserId);
@@ -521,8 +533,8 @@ public class EventService {
     }
     ensurePublicVisibilityForExternalMedia(event.getVisibility());
 
-    ensureMediaCapacity(eventId, 1);
     String mediaType = normalizeMediaType(request.mediaType());
+    ensureMediaCapacity(eventId, mediaType, 1);
     EventMediaRow media = new EventMediaRow();
     media.setId("media-" + UUID.randomUUID().toString().replace("-", "").substring(0, 18));
     media.setEventId(eventId);
@@ -546,8 +558,30 @@ public class EventService {
     return new StoredObjectContent(content.bytes(), contentType, content.contentLength());
   }
 
-  public AppEventDto uploadMedia(String eventId, MultipartFile image, String userId) {
-    uploadMediaFiles(eventId, List.of(image), userId);
+  public AppEventDto uploadMedia(String eventId, MultipartFile image, MultipartFile video, String userId) {
+    boolean hasImage = image != null && !image.isEmpty();
+    boolean hasVideo = video != null && !video.isEmpty();
+    if (hasImage == hasVideo) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "upload exactly one image or one video.");
+    }
+    if (hasImage) {
+      uploadImageFiles(eventId, List.of(image), userId);
+    } else {
+      uploadVideoFile(eventId, video, userId);
+    }
+    return getEventById(eventId, userId);
+  }
+
+  public AppEventDto uploadVideoBytes(String eventId, byte[] bytes, String contentType, String filename, String userId) {
+    if (bytes == null || bytes.length == 0) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "video is required.");
+    }
+    requireOwnedEvent(eventId, userId);
+    validateUploadedVideoCount(1);
+    ensureMediaCapacity(eventId, MEDIA_TYPE_VIDEO, 1);
+    EventMediaRow media =
+        buildUploadedVideoMedia(eventId, bytes, contentType, filename, eventMapper.findMediaByEventId(eventId).size());
+    eventMapper.insertMedia(media);
     return getEventById(eventId, userId);
   }
 
@@ -558,7 +592,7 @@ public class EventService {
         .filter(item -> item.getId().equals(mediaId))
         .findFirst()
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "media not found."));
-    if (mediaItems.size() <= 1) {
+    if (MEDIA_TYPE_IMAGE.equals(media.getMediaType()) && countMediaItems(mediaItems, MEDIA_TYPE_IMAGE) <= 1) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "event must keep at least one image.");
     }
     eventMapper.deleteMedia(eventId, mediaId);
@@ -576,15 +610,16 @@ public class EventService {
       return;
     }
     ensurePublicVisibilityForExternalMedia(visibility);
-    ensureMediaCapacity(eventId, mediaRequests.size());
     for (EventMediaRequest mediaRequest : mediaRequests) {
       if (mediaRequest == null || trimToNull(mediaRequest.url()) == null) {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "media.url is required.");
       }
+      String mediaType = normalizeMediaType(mediaRequest.mediaType());
+      ensureMediaCapacity(eventId, mediaType, 1);
       EventMediaRow media = new EventMediaRow();
       media.setId("media-" + UUID.randomUUID().toString().replace("-", "").substring(0, 18));
       media.setEventId(eventId);
-      media.setMediaType(normalizeMediaType(mediaRequest.mediaType()));
+      media.setMediaType(mediaType);
       media.setUrl(mediaRequest.url().trim());
       media.setThumbnailUrl(trimToNull(mediaRequest.thumbnailUrl()));
       media.setOriginalFilename(normalizeOriginalFilename(mediaRequest.fileName()));
@@ -593,14 +628,25 @@ public class EventService {
     }
   }
 
-  private void uploadMediaFiles(String eventId, List<MultipartFile> images, String userId) {
+  private void uploadImageFiles(String eventId, List<MultipartFile> images, String userId) {
     requireOwnedEvent(eventId, userId);
     validateUploadedImageCount(images, false);
-    ensureMediaCapacity(eventId, images.size());
+    ensureMediaCapacity(eventId, MEDIA_TYPE_IMAGE, images.size());
     for (MultipartFile image : images) {
       EventMediaRow media = buildUploadedImageMedia(eventId, image, eventMapper.findMediaByEventId(eventId).size());
       eventMapper.insertMedia(media);
     }
+  }
+
+  private void uploadVideoFile(String eventId, MultipartFile video, String userId) {
+    if (video == null || video.isEmpty()) {
+      return;
+    }
+    requireOwnedEvent(eventId, userId);
+    validateUploadedVideoCount(1);
+    ensureMediaCapacity(eventId, MEDIA_TYPE_VIDEO, 1);
+    EventMediaRow media = buildUploadedVideoMedia(eventId, video, eventMapper.findMediaByEventId(eventId).size());
+    eventMapper.insertMedia(media);
   }
 
   private EventMediaRow buildUploadedImageMedia(String eventId, MultipartFile file, int sortOrder) {
@@ -618,7 +664,7 @@ public class EventService {
       validateImageDimensions(image.getWidth(), image.getHeight());
       ensureStorageQuota(bytes.length);
       StoredObject storedObject = objectStorageService.putImage(
-          buildStorageKey(eventId, contentType),
+          buildStorageKey(eventId, MEDIA_TYPE_IMAGE, contentType),
           bytes,
           contentType,
           image.getWidth(),
@@ -644,20 +690,73 @@ public class EventService {
     }
   }
 
+  private EventMediaRow buildUploadedVideoMedia(String eventId, MultipartFile file, int sortOrder) {
+    if (file == null || file.isEmpty()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "video is required.");
+    }
+    try {
+      return buildUploadedVideoMedia(eventId, file.getBytes(), file.getContentType(), file.getOriginalFilename(), sortOrder);
+    } catch (IOException exception) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "video could not be read.", exception);
+    }
+  }
+
+  private EventMediaRow buildUploadedVideoMedia(
+      String eventId,
+      byte[] bytes,
+      String rawContentType,
+      String originalFilename,
+      int sortOrder) {
+    validateVideoFileSize(bytes.length);
+    String contentType = normalizeVideoContentType(rawContentType, originalFilename);
+    ensureStorageQuota(bytes.length);
+    StoredObject storedObject = objectStorageService.putObject(
+        buildStorageKey(eventId, MEDIA_TYPE_VIDEO, contentType),
+        bytes,
+        contentType);
+
+    EventMediaRow media = new EventMediaRow();
+    media.setId("media-" + UUID.randomUUID().toString().replace("-", "").substring(0, 18));
+    media.setEventId(eventId);
+    media.setMediaType(MEDIA_TYPE_VIDEO);
+    media.setUrl(storedObject.url());
+    media.setOriginalFilename(normalizeOriginalFilename(originalFilename));
+    media.setStorageKey(storedObject.storageKey());
+    media.setBucketName(storedObject.bucketName());
+    media.setContentType(storedObject.contentType());
+    media.setByteSize(storedObject.byteSize());
+    media.setSortOrder(sortOrder);
+    return media;
+  }
+
   private void validateUploadedImageCount(List<MultipartFile> images, boolean requireAtLeastOne) {
     int count = images == null ? 0 : images.size();
     if (requireAtLeastOne && count == 0) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "At least one image is required.");
     }
-    if (count > MAX_EVENT_MEDIA) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "events accept up to " + MAX_EVENT_MEDIA + " images.");
+    if (count > MAX_EVENT_IMAGES) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "events accept up to " + MAX_EVENT_IMAGES + " images.");
     }
   }
 
-  private void ensureMediaCapacity(String eventId, int incomingCount) {
-    int currentCount = eventMapper.findMediaByEventId(eventId).size();
-    if (currentCount + incomingCount > MAX_EVENT_MEDIA) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "events accept up to " + MAX_EVENT_MEDIA + " media items.");
+  private void validateUploadedVideoCount(int count) {
+    if (count > MAX_EVENT_VIDEOS) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "events accept up to one video.");
+    }
+  }
+
+  private void ensureMediaCapacity(String eventId, String mediaType, int incomingCount) {
+    if (incomingCount <= 0) {
+      return;
+    }
+    int currentCount = countMediaItems(eventMapper.findMediaByEventId(eventId), mediaType);
+    int maxCount = MEDIA_TYPE_VIDEO.equals(mediaType) ? MAX_EVENT_VIDEOS : MAX_EVENT_IMAGES;
+    if (currentCount + incomingCount > maxCount) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST,
+          MEDIA_TYPE_VIDEO.equals(mediaType)
+              ? "events accept up to one video."
+              : "events accept up to " + MAX_EVENT_IMAGES + " images.");
     }
   }
 
@@ -667,6 +766,15 @@ public class EventService {
     }
     if (byteSize > objectStorageProperties.getMaxFileBytes()) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "image must be 5 MB or smaller.");
+    }
+  }
+
+  private void validateVideoFileSize(int byteSize) {
+    if (byteSize <= 0) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "video is empty.");
+    }
+    if (byteSize > objectStorageProperties.getMaxVideoBytes()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "video must be 10 MB or smaller.");
     }
   }
 
@@ -710,9 +818,46 @@ public class EventService {
     throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "image must be JPEG or PNG.");
   }
 
-  private String buildStorageKey(String eventId, String contentType) {
-    String extension = CONTENT_TYPE_PNG.equals(contentType) ? "png" : "jpg";
-    return "events/" + eventId + "/" + UUID.randomUUID().toString().replace("-", "") + "." + extension;
+  private String normalizeVideoContentType(String contentType, String filename) {
+    String normalized = trimToNull(contentType);
+    if (CONTENT_TYPE_MP4.equalsIgnoreCase(normalized)) {
+      return CONTENT_TYPE_MP4;
+    }
+    if (CONTENT_TYPE_QUICKTIME.equalsIgnoreCase(normalized)) {
+      return CONTENT_TYPE_QUICKTIME;
+    }
+    if (CONTENT_TYPE_M4V.equalsIgnoreCase(normalized)) {
+      return CONTENT_TYPE_M4V;
+    }
+    String lowerFilename = filename == null ? "" : filename.toLowerCase(Locale.ROOT);
+    if (lowerFilename.endsWith(".mp4")) {
+      return CONTENT_TYPE_MP4;
+    }
+    if (lowerFilename.endsWith(".mov") || lowerFilename.endsWith(".qt")) {
+      return CONTENT_TYPE_QUICKTIME;
+    }
+    if (lowerFilename.endsWith(".m4v")) {
+      return CONTENT_TYPE_M4V;
+    }
+    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "video must be MP4, MOV, or M4V.");
+  }
+
+  private String buildStorageKey(String eventId, String mediaType, String contentType) {
+    String extension = storageExtension(mediaType, contentType);
+    return "events/" + eventId + "/" + mediaType + "/" + UUID.randomUUID().toString().replace("-", "") + "." + extension;
+  }
+
+  private String storageExtension(String mediaType, String contentType) {
+    if (MEDIA_TYPE_VIDEO.equals(mediaType)) {
+      if (CONTENT_TYPE_QUICKTIME.equals(contentType)) {
+        return "mov";
+      }
+      if (CONTENT_TYPE_M4V.equals(contentType)) {
+        return "m4v";
+      }
+      return "mp4";
+    }
+    return CONTENT_TYPE_PNG.equals(contentType) ? "png" : "jpg";
   }
 
   private void deleteStoredObjects(List<EventMediaRow> media) {
@@ -722,6 +867,9 @@ public class EventService {
   }
 
   private void deleteStoredObject(EventMediaRow media) {
+    if (media == null || trimToNull(media.getBucketName()) == null || trimToNull(media.getStorageKey()) == null) {
+      return;
+    }
     objectStorageService.delete(media.getBucketName(), media.getStorageKey());
   }
 
@@ -878,9 +1026,22 @@ public class EventService {
 
   private String mediaUrl(EventMediaRow row, String fallbackUrl) {
     if (trimToNull(row.getStorageKey()) != null) {
-      return "/api/events/" + row.getEventId() + "/media/" + row.getId() + "/content";
+      String contentPath = "/api/events/" + row.getEventId() + "/media/" + row.getId() + "/content";
+      return MEDIA_TYPE_VIDEO.equals(row.getMediaType())
+          ? contentPath + "/" + mediaContentFilename(row)
+          : contentPath;
     }
     return fallbackUrl;
+  }
+
+  private String mediaContentFilename(EventMediaRow row) {
+    String filename = normalizeOriginalFilename(row.getOriginalFilename());
+    String extension = storageExtension(row.getMediaType(), firstNonBlank(row.getContentType(), defaultContentType(row.getMediaType())));
+    if (filename == null) {
+      return "video." + extension;
+    }
+    String safeFilename = filename.replaceAll("[^A-Za-z0-9._-]", "_");
+    return safeFilename.contains(".") ? safeFilename : safeFilename + "." + extension;
   }
 
   private String resolveBucketName(EventMediaRow media) {
@@ -891,7 +1052,14 @@ public class EventService {
     if (MEDIA_TYPE_IMAGE.equals(mediaType)) {
       return CONTENT_TYPE_JPEG;
     }
+    if (MEDIA_TYPE_VIDEO.equals(mediaType)) {
+      return CONTENT_TYPE_MP4;
+    }
     return "application/octet-stream";
+  }
+
+  private int countMediaItems(List<EventMediaRow> mediaItems, String mediaType) {
+    return (int) mediaItems.stream().filter(item -> mediaType.equals(item.getMediaType())).count();
   }
 
   private void ensureNoExternalMediaForPrivateVisibility(String eventId, String visibility) {

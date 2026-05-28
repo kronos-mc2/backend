@@ -6,5 +6,5 @@ public record StoredObject(
     String storageKey,
     String contentType,
     long byteSize,
-    int width,
-    int height) {}
+    Integer width,
+    Integer height) {}
