@@ -13,6 +13,14 @@
       auth_provider,
       bio,
       avatar_url,
+      avatar_storage_key,
+      avatar_bucket_name,
+      avatar_content_type,
+      avatar_byte_size,
+      account_status,
+      deletion_requested_at,
+      deletion_scheduled_at,
+      deleted_at,
       created_at,
       updated_at
     FROM app_users
@@ -29,6 +37,14 @@
       auth_provider,
       bio,
       avatar_url,
+      avatar_storage_key,
+      avatar_bucket_name,
+      avatar_content_type,
+      avatar_byte_size,
+      account_status,
+      deletion_requested_at,
+      deletion_scheduled_at,
+      deleted_at,
       created_at,
       updated_at
     FROM app_users
@@ -45,6 +61,14 @@
       u.auth_provider,
       u.bio,
       u.avatar_url,
+      u.avatar_storage_key,
+      u.avatar_bucket_name,
+      u.avatar_content_type,
+      u.avatar_byte_size,
+      u.account_status,
+      u.deletion_requested_at,
+      u.deletion_scheduled_at,
+      u.deleted_at,
       u.created_at,
       u.updated_at
     FROM user_social_identities usi
@@ -60,15 +84,51 @@
       email,
       full_name,
       password_hash,
-      auth_provider
+      auth_provider,
+      avatar_url
     ) VALUES (
       #{id},
       #{email},
       #{fullName},
       #{passwordHash},
-      #{authProvider}
+      #{authProvider},
+      #{avatarUrl}
     )
   </insert>
+
+  <select id="findDeletionRecoveryByEmail" resultType="hr.kronos.backend.auth.persistence.UserDeletionRecoveryRow">
+    SELECT
+      user_id,
+      original_email,
+      original_full_name,
+      original_bio,
+      original_avatar_url,
+      original_password_hash,
+      original_auth_provider,
+      requested_at,
+      scheduled_at
+    FROM account_deletion_recoveries
+    WHERE original_email = #{email}
+      AND scheduled_at &gt; NOW()
+    LIMIT 1
+  </select>
+
+  <select id="findDeletionRecoveryByUserId" resultType="hr.kronos.backend.auth.persistence.UserDeletionRecoveryRow">
+    SELECT
+      user_id,
+      original_email,
+      original_full_name,
+      original_bio,
+      original_avatar_url,
+      original_password_hash,
+      original_auth_provider,
+      requested_at,
+      scheduled_at
+    FROM account_deletion_recoveries
+    WHERE user_id = #{userId}
+      AND scheduled_at &gt; NOW()
+    LIMIT 1
+  </select>
 
   <insert id="insertSocialIdentity">
     INSERT INTO user_social_identities (
@@ -95,6 +155,13 @@
       AND provider_subject = #{providerSubject}
   </update>
 
+  <update id="updateSocialIdentitiesEmailForUser">
+    UPDATE user_social_identities
+    SET email = #{email},
+        updated_at = NOW()
+    WHERE user_id = #{userId}
+  </update>
+
   <update id="updateName">
     UPDATE app_users
     SET full_name = #{fullName},
@@ -110,5 +177,146 @@
         updated_at = NOW()
     WHERE id = #{id}
   </update>
+
+  <update id="updateProfileAvatar">
+    UPDATE app_users
+    SET avatar_url = #{avatarUrl},
+        avatar_storage_key = #{avatarStorageKey},
+        avatar_bucket_name = #{avatarBucketName},
+        avatar_content_type = #{avatarContentType},
+        avatar_byte_size = #{avatarByteSize},
+        updated_at = NOW()
+    WHERE id = #{id}
+  </update>
+
+  <update id="updatePassword">
+    UPDATE app_users
+    SET password_hash = #{passwordHash},
+        auth_provider = 'local',
+        updated_at = NOW()
+    WHERE id = #{id}
+  </update>
+
+  <insert id="insertDeletionRecovery">
+    INSERT INTO account_deletion_recoveries (
+      user_id,
+      original_email,
+      original_full_name,
+      original_bio,
+      original_avatar_url,
+      original_password_hash,
+      original_auth_provider,
+      scheduled_at
+    ) VALUES (
+      #{userId},
+      #{originalEmail},
+      #{originalFullName},
+      #{originalBio},
+      #{originalAvatarUrl},
+      #{originalPasswordHash},
+      #{originalAuthProvider},
+      #{scheduledAt}
+    )
+    ON CONFLICT (user_id)
+    DO UPDATE SET
+      original_email = EXCLUDED.original_email,
+      original_full_name = EXCLUDED.original_full_name,
+      original_bio = EXCLUDED.original_bio,
+      original_avatar_url = EXCLUDED.original_avatar_url,
+      original_password_hash = EXCLUDED.original_password_hash,
+      original_auth_provider = EXCLUDED.original_auth_provider,
+      requested_at = NOW(),
+      scheduled_at = EXCLUDED.scheduled_at
+  </insert>
+
+  <update id="markDeletionRequested">
+    UPDATE app_users
+    SET email = #{anonymizedEmail},
+        full_name = 'Deleted user',
+        password_hash = NULL,
+        bio = NULL,
+        avatar_url = NULL,
+        avatar_storage_key = NULL,
+        avatar_bucket_name = NULL,
+        avatar_content_type = NULL,
+        avatar_byte_size = NULL,
+        account_status = 'deletion_pending',
+        deletion_requested_at = NOW(),
+        deletion_scheduled_at = #{scheduledAt},
+        deleted_at = NULL,
+        updated_at = NOW()
+    WHERE id = #{id}
+  </update>
+
+  <update id="anonymizeSocialIdentitiesForDeletion">
+    UPDATE user_social_identities
+    SET email = #{anonymizedEmail},
+        updated_at = NOW()
+    WHERE user_id = #{userId}
+  </update>
+
+  <delete id="deletePersonalStateForDeletion">
+    WITH deleted_push_tokens AS (
+      DELETE FROM user_push_tokens WHERE user_id = #{userId} RETURNING 1
+    ),
+    deleted_notification_preferences AS (
+      DELETE FROM user_notification_preferences WHERE user_id = #{userId} RETURNING 1
+    ),
+    deleted_chat_mutes AS (
+      DELETE FROM chat_notification_mutes WHERE user_id = #{userId} RETURNING 1
+    ),
+    deleted_feed_blocks AS (
+      DELETE FROM user_feed_blocks WHERE user_id = #{userId} RETURNING 1
+    )
+    DELETE FROM friend_requests WHERE requester_user_id = #{userId} OR recipient_user_id = #{userId};
+  </delete>
+
+  <update id="restoreUserFromDeletion">
+    UPDATE app_users
+    SET email = #{email},
+        full_name = #{fullName},
+        bio = #{bio},
+        avatar_url = #{avatarUrl},
+        password_hash = #{passwordHash},
+        auth_provider = #{authProvider},
+        account_status = 'active',
+        deletion_requested_at = NULL,
+        deletion_scheduled_at = NULL,
+        deleted_at = NULL,
+        updated_at = NOW()
+    WHERE id = #{id}
+  </update>
+
+  <delete id="deleteDeletionRecovery">
+    DELETE FROM account_deletion_recoveries
+    WHERE user_id = #{userId}
+  </delete>
+
+  <delete id="scrubExpiredSocialIdentities">
+    DELETE FROM user_social_identities
+    WHERE user_id IN (
+      SELECT user_id
+      FROM account_deletion_recoveries
+      WHERE scheduled_at &lt;= NOW()
+    )
+  </delete>
+
+  <update id="markExpiredDeletionsFinal">
+    UPDATE app_users
+    SET account_status = 'deleted',
+        password_hash = NULL,
+        deleted_at = COALESCE(deleted_at, NOW()),
+        updated_at = NOW()
+    WHERE id IN (
+      SELECT user_id
+      FROM account_deletion_recoveries
+      WHERE scheduled_at &lt;= NOW()
+    )
+  </update>
+
+  <delete id="deleteExpiredDeletionRecoveries">
+    DELETE FROM account_deletion_recoveries
+    WHERE scheduled_at &lt;= NOW()
+  </delete>
 
 </mapper>

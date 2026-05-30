@@ -2,6 +2,8 @@ package hr.kronos.backend.config;
 
 import hr.kronos.backend.auth.AuthPrincipal;
 import hr.kronos.backend.auth.JwtService;
+import hr.kronos.backend.auth.persistence.AuthMapper;
+import hr.kronos.backend.auth.persistence.UserRow;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -18,9 +20,11 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
   private final JwtService jwtService;
+  private final AuthMapper authMapper;
 
-  public JwtAuthenticationFilter(JwtService jwtService) {
+  public JwtAuthenticationFilter(JwtService jwtService, AuthMapper authMapper) {
     this.jwtService = jwtService;
+    this.authMapper = authMapper;
   }
 
   @Override
@@ -48,6 +52,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String name = claims.get("name", String.class);
 
         if (userId != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+          UserRow user = authMapper.findById(userId);
+          if (user == null || !isActive(user)) {
+            SecurityContextHolder.clearContext();
+            filterChain.doFilter(request, response);
+            return;
+          }
           AuthPrincipal principal = new AuthPrincipal(userId, email, name);
           UsernamePasswordAuthenticationToken authentication =
               new UsernamePasswordAuthenticationToken(
@@ -60,5 +70,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     }
 
     filterChain.doFilter(request, response);
+  }
+
+  private boolean isActive(UserRow user) {
+    String status = user.getAccountStatus();
+    return status == null || status.isBlank() || "active".equals(status);
   }
 }

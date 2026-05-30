@@ -72,7 +72,7 @@ public class AppleIdTokenVerifierService {
         throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Apple account subject is missing.");
       }
 
-      return new SocialIdentity(providerSubject, email, jwt.getClaimAsString("name"));
+      return new SocialIdentity(providerSubject, email, jwt.getClaimAsString("name"), null);
     } catch (JwtException exception) {
       logger.warn("Apple id token verification failed: {}", exception.getMessage());
       if (OAuthProviderAvailability.isUnavailable(exception, APPLE_JWKS_HOST)) {

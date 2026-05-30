@@ -14,9 +14,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -52,7 +54,12 @@ public class LocationSearchService {
   }
 
   public List<LocationSearchResultDto> search(
-      String query, String locale, Integer requestedLimit, Double proximityLat, Double proximityLng) {
+      String query,
+      String locale,
+      Integer requestedLimit,
+      Double proximityLat,
+      Double proximityLng,
+      String requestedTypes) {
     String normalizedQuery = normalizeQuery(query);
     if (normalizedQuery.length() < MIN_QUERY_LENGTH) {
       return List.of();
@@ -60,7 +67,8 @@ public class LocationSearchService {
 
     int limit = normalizeLimit(requestedLimit);
     String normalizedLocale = normalizeLocale(locale);
-    String cacheKey = cacheKey(normalizedQuery, normalizedLocale, limit, proximityLat, proximityLng);
+    Set<SearchType> types = normalizeTypes(requestedTypes);
+    String cacheKey = cacheKey(normalizedQuery, normalizedLocale, limit, proximityLat, proximityLng, types);
     CacheEntry cached = cache.get(cacheKey);
 
     if (cached != null && cached.isFresh()) {
@@ -68,7 +76,7 @@ public class LocationSearchService {
     }
 
     List<LocationSearchResultDto> results =
-        fetchNominatim(normalizedQuery, normalizedLocale, limit, proximityLat, proximityLng);
+        fetchNominatim(normalizedQuery, normalizedLocale, limit, proximityLat, proximityLng, types);
     cache.put(cacheKey, new CacheEntry(Instant.now(), results));
     pruneCache();
 
@@ -76,11 +84,16 @@ public class LocationSearchService {
   }
 
   private List<LocationSearchResultDto> fetchNominatim(
-      String query, String locale, int limit, Double proximityLat, Double proximityLng) {
+      String query,
+      String locale,
+      int limit,
+      Double proximityLat,
+      Double proximityLng,
+      Set<SearchType> types) {
     boolean hasProximity = isValidCoordinate(proximityLat, proximityLng);
     URI uri =
         buildNominatimUri(
-            query, locale, limit, hasProximity ? proximityLat : null, hasProximity ? proximityLng : null);
+            query, locale, limit, hasProximity ? proximityLat : null, hasProximity ? proximityLng : null, types);
     HttpRequest request =
         HttpRequest.newBuilder(uri)
             .timeout(REQUEST_TIMEOUT)
@@ -102,7 +115,7 @@ public class LocationSearchService {
 
       List<LocationSearchResultDto> results = new ArrayList<>();
       for (JsonNode item : payload) {
-        LocationSearchResultDto result = toLocationSearchResult(item);
+        LocationSearchResultDto result = toLocationSearchResult(item, types);
         if (result != null) {
           results.add(result);
         }
@@ -118,7 +131,12 @@ public class LocationSearchService {
   }
 
   private URI buildNominatimUri(
-      String query, String locale, int limit, Double proximityLat, Double proximityLng) {
+      String query,
+      String locale,
+      int limit,
+      Double proximityLat,
+      Double proximityLng,
+      Set<SearchType> types) {
     UriComponentsBuilder builder =
         UriComponentsBuilder.fromUriString(nominatimBaseUrl)
             .path("/search")
@@ -128,6 +146,11 @@ public class LocationSearchService {
             .queryParam("dedupe", "1")
             .queryParam("limit", limit)
             .queryParam("accept-language", locale);
+
+    String featureType = nominatimFeatureType(types);
+    if (featureType != null) {
+      builder.queryParam("featureType", featureType);
+    }
 
     if (proximityLat != null && proximityLng != null) {
       double minLng = Math.max(-180, proximityLng - PROXIMITY_VIEWBOX_DELTA);
@@ -141,17 +164,21 @@ public class LocationSearchService {
     return builder.build().encode().toUri();
   }
 
-  private LocationSearchResultDto toLocationSearchResult(JsonNode item) {
+  private LocationSearchResultDto toLocationSearchResult(JsonNode item, Set<SearchType> types) {
     String id = textValue(item, "place_id");
     String displayName = textValue(item, "display_name");
     BigDecimal latitude = decimalValue(item, "lat");
     BigDecimal longitude = decimalValue(item, "lon");
 
-    if (id == null || displayName == null || latitude == null || longitude == null) {
+    if (id == null
+        || displayName == null
+        || latitude == null
+        || longitude == null
+        || !matchesRequestedTypes(item, types)) {
       return null;
     }
 
-    DisplayName display = composeAddressDisplay(item, displayName);
+    DisplayName display = composeDisplay(item, displayName, types);
     return new LocationSearchResultDto(
         id,
         display.title(),
@@ -177,6 +204,24 @@ public class LocationSearchService {
     return Math.clamp(requestedLimit, 1, MAX_LIMIT);
   }
 
+  private Set<SearchType> normalizeTypes(String requestedTypes) {
+    EnumSet<SearchType> types = EnumSet.noneOf(SearchType.class);
+    if (requestedTypes == null || requestedTypes.isBlank()) {
+      return types;
+    }
+
+    for (String value : requestedTypes.split(",")) {
+      String normalized = value.trim().toLowerCase(Locale.ROOT);
+      if (normalized.equals("city")) {
+        types.add(SearchType.CITY);
+      } else if (normalized.equals("country")) {
+        types.add(SearchType.COUNTRY);
+      }
+    }
+
+    return types;
+  }
+
   private String normalizeLocale(String locale) {
     if (locale == null || locale.isBlank()) {
       return "hr";
@@ -185,12 +230,13 @@ public class LocationSearchService {
     return locale.trim().toLowerCase(Locale.ROOT);
   }
 
-  private String cacheKey(String query, String locale, int limit, Double proximityLat, Double proximityLng) {
+  private String cacheKey(
+      String query, String locale, int limit, Double proximityLat, Double proximityLng, Set<SearchType> types) {
     String proximity =
         isValidCoordinate(proximityLat, proximityLng)
             ? String.format(Locale.ROOT, "%.3f:%.3f", proximityLat, proximityLng)
             : "none";
-    return "%s:%d:%s:%s".formatted(locale, limit, proximity, query.toLowerCase(Locale.ROOT));
+    return "%s:%d:%s:%s:%s".formatted(locale, limit, proximity, types, query.toLowerCase(Locale.ROOT));
   }
 
   private boolean isValidCoordinate(Double latitude, Double longitude) {
@@ -253,6 +299,87 @@ public class LocationSearchService {
     } catch (NumberFormatException _) {
       return null;
     }
+  }
+
+  private boolean matchesRequestedTypes(JsonNode item, Set<SearchType> types) {
+    if (types.isEmpty()) {
+      return true;
+    }
+
+    return (types.contains(SearchType.CITY) && isCityResult(item))
+        || (types.contains(SearchType.COUNTRY) && isCountryResult(item));
+  }
+
+  private boolean isCityResult(JsonNode item) {
+    if (addressValue(item, "city", "town", "village", "municipality") != null) {
+      return true;
+    }
+
+    String category = textValue(item, "category");
+    if (category == null) {
+      category = textValue(item, "class");
+    }
+    String type = textValue(item, "type");
+
+    return "place".equals(category)
+        && List.of("city", "town", "village", "municipality").contains(type);
+  }
+
+  private boolean isCountryResult(JsonNode item) {
+    String category = textValue(item, "category");
+    if (category == null) {
+      category = textValue(item, "class");
+    }
+    String type = textValue(item, "type");
+
+    return ("boundary".equals(category) && "administrative".equals(type)) || "country".equals(type);
+  }
+
+  private String nominatimFeatureType(Set<SearchType> types) {
+    if (types.size() != 1) {
+      return null;
+    }
+    if (types.contains(SearchType.COUNTRY)) {
+      return "country";
+    }
+    if (types.contains(SearchType.CITY)) {
+      return "city";
+    }
+    return null;
+  }
+
+  private DisplayName composeDisplay(JsonNode item, String displayName, Set<SearchType> types) {
+    if (types.contains(SearchType.COUNTRY) && !types.contains(SearchType.CITY)) {
+      return composeCountryDisplay(item, displayName);
+    }
+    if (types.contains(SearchType.CITY) && !types.contains(SearchType.COUNTRY)) {
+      return composeCityDisplay(item, displayName);
+    }
+    return composeAddressDisplay(item, displayName);
+  }
+
+  private DisplayName composeCityDisplay(JsonNode item, String displayName) {
+    String title = addressValue(item, "city", "town", "village", "municipality");
+    if (title == null) {
+      return parseDisplayName(displayName);
+    }
+
+    List<String> subtitleParts = new ArrayList<>();
+    addUnique(subtitleParts, addressValue(item, "county", "state_district"));
+    addUnique(subtitleParts, addressValue(item, "state"));
+    addUnique(subtitleParts, addressValue(item, "country"));
+
+    return new DisplayName(title, String.join(", ", subtitleParts));
+  }
+
+  private DisplayName composeCountryDisplay(JsonNode item, String displayName) {
+    String title = addressValue(item, "country");
+    if (title == null) {
+      return parseDisplayName(displayName);
+    }
+
+    String countryCode = addressValue(item, "country_code");
+    return new DisplayName(title, countryCode == null ? "" : countryCode.toUpperCase(Locale.ROOT));
   }
 
   private DisplayName composeAddressDisplay(JsonNode item, String displayName) {
@@ -341,4 +468,9 @@ public class LocationSearchService {
   }
 
   private record DisplayName(String title, String subtitle) {}
+
+  private enum SearchType {
+    CITY,
+    COUNTRY
+  }
 }

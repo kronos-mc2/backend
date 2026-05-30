@@ -10,6 +10,14 @@ public class UserRow {
   private String authProvider;
   private String bio;
   private String avatarUrl;
+  private String avatarStorageKey;
+  private String avatarBucketName;
+  private String avatarContentType;
+  private Long avatarByteSize;
+  private String accountStatus;
+  private OffsetDateTime deletionRequestedAt;
+  private OffsetDateTime deletionScheduledAt;
+  private OffsetDateTime deletedAt;
   private OffsetDateTime createdAt;
   private OffsetDateTime updatedAt;
 
@@ -67,6 +75,70 @@ public class UserRow {
 
   public void setAvatarUrl(String avatarUrl) {
     this.avatarUrl = avatarUrl;
+  }
+
+  public String getAvatarStorageKey() {
+    return avatarStorageKey;
+  }
+
+  public void setAvatarStorageKey(String avatarStorageKey) {
+    this.avatarStorageKey = avatarStorageKey;
+  }
+
+  public String getAvatarBucketName() {
+    return avatarBucketName;
+  }
+
+  public void setAvatarBucketName(String avatarBucketName) {
+    this.avatarBucketName = avatarBucketName;
+  }
+
+  public String getAvatarContentType() {
+    return avatarContentType;
+  }
+
+  public void setAvatarContentType(String avatarContentType) {
+    this.avatarContentType = avatarContentType;
+  }
+
+  public Long getAvatarByteSize() {
+    return avatarByteSize;
+  }
+
+  public void setAvatarByteSize(Long avatarByteSize) {
+    this.avatarByteSize = avatarByteSize;
+  }
+
+  public String getAccountStatus() {
+    return accountStatus;
+  }
+
+  public void setAccountStatus(String accountStatus) {
+    this.accountStatus = accountStatus;
+  }
+
+  public OffsetDateTime getDeletionRequestedAt() {
+    return deletionRequestedAt;
+  }
+
+  public void setDeletionRequestedAt(OffsetDateTime deletionRequestedAt) {
+    this.deletionRequestedAt = deletionRequestedAt;
+  }
+
+  public OffsetDateTime getDeletionScheduledAt() {
+    return deletionScheduledAt;
+  }
+
+  public void setDeletionScheduledAt(OffsetDateTime deletionScheduledAt) {
+    this.deletionScheduledAt = deletionScheduledAt;
+  }
+
+  public OffsetDateTime getDeletedAt() {
+    return deletedAt;
+  }
+
+  public void setDeletedAt(OffsetDateTime deletedAt) {
+    this.deletedAt = deletedAt;
   }
 
   public OffsetDateTime getCreatedAt() {

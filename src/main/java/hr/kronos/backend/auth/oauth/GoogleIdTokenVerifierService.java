@@ -75,7 +75,8 @@ public class GoogleIdTokenVerifierService {
       }
 
       String name = jwt.getClaimAsString("name");
-      return new SocialIdentity(providerSubject, email, name);
+      String pictureUrl = jwt.getClaimAsString("picture");
+      return new SocialIdentity(providerSubject, email, name, pictureUrl);
     } catch (JwtException exception) {
       logger.warn("Google id token verification failed: {}", exception.getMessage());
       if (OAuthProviderAvailability.isUnavailable(exception, GOOGLE_JWKS_HOST)) {

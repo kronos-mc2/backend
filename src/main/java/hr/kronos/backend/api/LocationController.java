@@ -23,7 +23,8 @@ public class LocationController {
       @RequestParam(defaultValue = "hr") String locale,
       @RequestParam(required = false) Integer limit,
       @RequestParam(required = false) Double lat,
-      @RequestParam(required = false) Double lng) {
-    return locationSearchService.search(query, locale, limit, lat, lng);
+      @RequestParam(required = false) Double lng,
+      @RequestParam(required = false) String types) {
+    return locationSearchService.search(query, locale, limit, lat, lng, types);
   }
 }

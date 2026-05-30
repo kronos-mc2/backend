@@ -21,6 +21,16 @@ public interface EventMapper {
   List<EventRow> findFeedPage(
       @Param("userId") String userId,
       @Param("seed") String seed,
+      @Param("from") OffsetDateTime from,
+      @Param("to") OffsetDateTime to,
+      @Param("lat") Double lat,
+      @Param("lng") Double lng,
+      @Param("radiusKm") Double radiusKm,
+      @Param("query") String query,
+      @Param("tags") List<String> tags,
+      @Param("attendanceModes") List<String> attendanceModes,
+      @Param("scope") String scope,
+      @Param("sort") String sort,
       @Param("offset") int offset,
       @Param("limit") int limit);
 

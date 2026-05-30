@@ -8,11 +8,13 @@ import hr.kronos.backend.auth.dto.SocialLoginRequest;
 import hr.kronos.backend.auth.oauth.AppleIdTokenVerifierService;
 import hr.kronos.backend.auth.oauth.GoogleIdTokenVerifierService;
 import hr.kronos.backend.auth.persistence.AuthMapper;
+import hr.kronos.backend.auth.persistence.UserDeletionRecoveryRow;
 import hr.kronos.backend.auth.persistence.UserRow;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -42,6 +44,7 @@ public class AuthService {
   }
 
   public AuthResponse register(RegisterRequest request) {
+    purgeExpiredDeletionRecoveries();
     if (request == null) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Request body is required.");
     }
@@ -60,7 +63,7 @@ public class AuthService {
           "Password must have at least 8 chars, uppercase, lowercase, digit and special char.");
     }
 
-    if (authMapper.findByEmail(email) != null) {
+    if (authMapper.findByEmail(email) != null || authMapper.findDeletionRecoveryByEmail(email) != null) {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already exists.");
     }
 
@@ -80,6 +83,7 @@ public class AuthService {
   }
 
   public AuthResponse login(LoginRequest request) {
+    purgeExpiredDeletionRecoveries();
     if (request == null) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Request body is required.");
     }
@@ -88,6 +92,9 @@ public class AuthService {
     String password = request.password();
 
     UserRow user = authMapper.findByEmail(email);
+    if (user == null) {
+      user = restorePendingDeletionForPasswordLogin(email, password);
+    }
     if (user == null || user.getPasswordHash() == null || password == null) {
       throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials.");
     }
@@ -100,6 +107,7 @@ public class AuthService {
   }
 
   public AuthResponse loginWithGoogle(SocialLoginRequest request) {
+    purgeExpiredDeletionRecoveries();
     if (request == null) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Request body is required.");
     }
@@ -109,6 +117,7 @@ public class AuthService {
   }
 
   public AuthResponse loginWithApple(SocialLoginRequest request) {
+    purgeExpiredDeletionRecoveries();
     if (request == null) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Request body is required.");
     }
@@ -121,6 +130,9 @@ public class AuthService {
     UserRow user = authMapper.findById(userId);
     if (user == null) {
       throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found.");
+    }
+    if (!isActive(user)) {
+      throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Account is deleted.");
     }
     return new AuthUserDto(user.getFullName(), user.getEmail(), user.getBio(), user.getAvatarUrl());
   }
@@ -142,6 +154,7 @@ public class AuthService {
 
     UserRow user = authMapper.findBySocialIdentity(provider, providerSubject);
     if (user != null) {
+      user = restorePendingDeletionForSocialLogin(user);
       authMapper.updateSocialIdentityEmail(provider, providerSubject, email);
       updateSocialNameIfNeeded(user, name);
       return buildAuthResponse(user);
@@ -149,12 +162,20 @@ public class AuthService {
 
     user = authMapper.findByEmail(email);
     if (user == null) {
+      UserDeletionRecoveryRow recovery = authMapper.findDeletionRecoveryByEmail(email);
+      if (recovery != null) {
+        user = restorePendingDeletion(recovery);
+      }
+    }
+
+    if (user == null) {
       user = new UserRow();
       user.setId(nextUserId());
       user.setEmail(email);
       user.setFullName(name);
       user.setAuthProvider(provider);
       user.setPasswordHash(null);
+      user.setAvatarUrl(normalizeAvatarUrlOrNull(identity.pictureUrl()));
       try {
         authMapper.insert(user);
       } catch (DuplicateKeyException _) {
@@ -192,6 +213,9 @@ public class AuthService {
   }
 
   private void updateSocialNameIfNeeded(UserRow user, String name) {
+    if (!isActive(user)) {
+      return;
+    }
     if (!name.equals(user.getFullName())) {
       authMapper.updateName(user.getId(), name);
       user.setFullName(name);
@@ -199,6 +223,9 @@ public class AuthService {
   }
 
   private AuthResponse buildAuthResponse(UserRow user) {
+    if (!isActive(user)) {
+      throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Account is deleted.");
+    }
     String token = jwtService.createToken(user);
     AuthUserDto userDto = new AuthUserDto(user.getFullName(), user.getEmail(), user.getBio(), user.getAvatarUrl());
     return new AuthResponse(token, userDto);
@@ -253,5 +280,75 @@ public class AuthService {
       return "User";
     }
     return email.substring(0, atIndex);
+  }
+
+  private UserRow restorePendingDeletionForPasswordLogin(String email, String password) {
+    if (password == null) {
+      return null;
+    }
+
+    UserDeletionRecoveryRow recovery = authMapper.findDeletionRecoveryByEmail(email);
+    if (recovery == null || recovery.getOriginalPasswordHash() == null) {
+      return null;
+    }
+    if (!passwordEncoder.matches(password, recovery.getOriginalPasswordHash())) {
+      return null;
+    }
+
+    return restorePendingDeletion(recovery);
+  }
+
+  private UserRow restorePendingDeletionForSocialLogin(UserRow user) {
+    if (isActive(user)) {
+      return user;
+    }
+    if (!"deletion_pending".equals(user.getAccountStatus())) {
+      throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Account is deleted.");
+    }
+    UserDeletionRecoveryRow recovery = authMapper.findDeletionRecoveryByUserId(user.getId());
+    if (recovery == null) {
+      purgeExpiredDeletionRecoveries();
+      throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Account deletion recovery period expired.");
+    }
+    return restorePendingDeletion(recovery);
+  }
+
+  private UserRow restorePendingDeletion(UserDeletionRecoveryRow recovery) {
+    authMapper.restoreUserFromDeletion(
+        recovery.getUserId(),
+        recovery.getOriginalEmail(),
+        recovery.getOriginalFullName(),
+        recovery.getOriginalBio(),
+        recovery.getOriginalAvatarUrl(),
+        recovery.getOriginalPasswordHash(),
+        recovery.getOriginalAuthProvider());
+    authMapper.updateSocialIdentitiesEmailForUser(recovery.getUserId(), recovery.getOriginalEmail());
+    authMapper.deleteDeletionRecovery(recovery.getUserId());
+    UserRow restored = authMapper.findById(recovery.getUserId());
+    if (restored == null) {
+      throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found.");
+    }
+    return restored;
+  }
+
+  @Scheduled(fixedDelayString = "${app.account-deletion-purge-delay-ms:3600000}")
+  public void purgeExpiredDeletionRecoveries() {
+    authMapper.scrubExpiredSocialIdentities();
+    authMapper.markExpiredDeletionsFinal();
+    authMapper.deleteExpiredDeletionRecoveries();
+  }
+
+  private boolean isActive(UserRow user) {
+    String status = user.getAccountStatus();
+    return status == null || status.isBlank() || "active".equals(status);
+  }
+
+  private String normalizeAvatarUrlOrNull(String avatarUrl) {
+    String normalized = avatarUrl == null ? null : avatarUrl.trim();
+    if (normalized == null || normalized.isBlank()) {
+      return null;
+    }
+    String lower = normalized.toLowerCase();
+    return lower.startsWith("https://") || lower.startsWith("http://") ? normalized : null;
   }
 }

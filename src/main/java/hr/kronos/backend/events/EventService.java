@@ -80,6 +80,10 @@ public class EventService {
   private static final int SAVED_GOING_SOON_LIMIT = 3;
   private static final int SAVED_PAST_LIMIT = 3;
   private static final int MAX_FEED_SEED_LENGTH = 80;
+  private static final String FEED_SCOPE_ALL = "all";
+  private static final String FEED_SCOPE_FRIENDS = "friends";
+  private static final String FEED_SORT_DEFAULT = "default";
+  private static final String FEED_SORT_TRENDING = "trending";
   private static final int MAX_EVENT_TAGS = 10;
   private static final int MAX_EVENT_IMAGES = 5;
   private static final int MAX_EVENT_VIDEOS = 1;
@@ -158,15 +162,40 @@ public class EventService {
             userId));
   }
 
-  public FeedPageDto getFeed(String userId, String cursor, Integer limit, String seed) {
+  public FeedPageDto getFeed(
+      String userId,
+      String cursor,
+      Integer limit,
+      String seed,
+      String from,
+      String to,
+      Double lat,
+      Double lng,
+      Double radiusKm,
+      String query,
+      String tags,
+      String attendanceModes,
+      String scope,
+      String sort) {
     markPastEventsFinished();
     int offset = parseFeedOffset(cursor);
     int normalizedLimit = normalizeFeedLimit(limit);
     String normalizedSeed = normalizeFeedSeed(seed);
+    FeedFilters filters = normalizeFeedFilters(from, to, lat, lng, radiusKm, query, tags, attendanceModes, scope, sort);
     List<EventRow> rows =
         eventMapper.findFeedPage(
             userId,
             normalizedSeed,
+            filters.from(),
+            filters.to(),
+            filters.lat(),
+            filters.lng(),
+            filters.radiusKm(),
+            filters.query(),
+            filters.tags(),
+            filters.attendanceModes(),
+            filters.scope(),
+            filters.sort(),
             offset,
             normalizedLimit + 1);
 
@@ -1246,6 +1275,75 @@ public class EventService {
     return isEventEnded(row);
   }
 
+  private FeedFilters normalizeFeedFilters(
+      String from,
+      String to,
+      Double lat,
+      Double lng,
+      Double radiusKm,
+      String query,
+      String tags,
+      String attendanceModes,
+      String scope,
+      String sort) {
+    OffsetDateTime now = OffsetDateTime.now();
+    OffsetDateTime fromDate = parseOptionalWhenIso(from, "from");
+    OffsetDateTime toDate = parseOptionalWhenIso(to, "to");
+    if (fromDate == null || fromDate.isBefore(now)) {
+      fromDate = now;
+    }
+
+    if (toDate != null && toDate.isBefore(fromDate)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "to must be after from.");
+    }
+
+    if ((lat == null) != (lng == null)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "lat and lng must be provided together.");
+    }
+
+    if (lat != null && lng != null && !isValidCoordinate(lat, lng)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "lat/lng are invalid.");
+    }
+
+    if (radiusKm != null && (radiusKm <= 0 || radiusKm > 500)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "radiusKm must be between 0 and 500.");
+    }
+
+    return new FeedFilters(
+        fromDate,
+        toDate,
+        lat,
+        lng,
+        radiusKm,
+        trimToNull(query),
+        normalizeFilterTags(tags),
+        normalizeAttendanceModeFilter(attendanceModes),
+        normalizeFeedScope(scope),
+        normalizeFeedSort(sort));
+  }
+
+  private String normalizeFeedScope(String scope) {
+    String normalized = trimToNull(scope);
+    if (normalized == null || FEED_SCOPE_ALL.equalsIgnoreCase(normalized)) {
+      return FEED_SCOPE_ALL;
+    }
+    if (FEED_SCOPE_FRIENDS.equalsIgnoreCase(normalized)) {
+      return FEED_SCOPE_FRIENDS;
+    }
+    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported feed scope.");
+  }
+
+  private String normalizeFeedSort(String sort) {
+    String normalized = trimToNull(sort);
+    if (normalized == null || FEED_SORT_DEFAULT.equalsIgnoreCase(normalized)) {
+      return FEED_SORT_DEFAULT;
+    }
+    if (FEED_SORT_TRENDING.equalsIgnoreCase(normalized)) {
+      return FEED_SORT_TRENDING;
+    }
+    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported feed sort.");
+  }
+
   private int normalizeFeedLimit(Integer limit) {
     if (limit == null) {
       return DEFAULT_FEED_LIMIT;
@@ -1289,6 +1387,18 @@ public class EventService {
 
     return normalized.length() <= MAX_FEED_SEED_LENGTH ? normalized : normalized.substring(0, MAX_FEED_SEED_LENGTH);
   }
+
+  private record FeedFilters(
+      OffsetDateTime from,
+      OffsetDateTime to,
+      Double lat,
+      Double lng,
+      Double radiusKm,
+      String query,
+      List<String> tags,
+      List<String> attendanceModes,
+      String scope,
+      String sort) {}
 
   private String normalizeMyEventsFilter(String filter) {
     String normalized = trimToNull(filter);

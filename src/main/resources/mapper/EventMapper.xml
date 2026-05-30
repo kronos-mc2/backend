@@ -208,12 +208,77 @@
       AND efi.user_id = #{userId}
     WHERE <include refid="accessibleEventPredicate" />
       AND e.status = 'published'
-      AND COALESCE(e.start_at, e.when_iso) &gt;= NOW()
+      <if test="from != null">
+        AND COALESCE(e.start_at, e.when_iso) &gt;= #{from}
+      </if>
+      <if test="to != null">
+        AND COALESCE(e.start_at, e.when_iso) &lt; #{to}
+      </if>
       AND <include refid="notBlockedPredicate" />
       AND <include refid="feedPreferencePredicate" />
+      <if test="query != null and query != ''">
+        AND (
+          e.title_hr ILIKE '%' || #{query} || '%'
+          OR e.title_en ILIKE '%' || #{query} || '%'
+          OR e.where_hr ILIKE '%' || #{query} || '%'
+          OR e.where_en ILIKE '%' || #{query} || '%'
+          OR e.address ILIKE '%' || #{query} || '%'
+          OR e.about_hr ILIKE '%' || #{query} || '%'
+          OR e.about_en ILIKE '%' || #{query} || '%'
+          OR EXISTS (
+            SELECT 1
+            FROM event_tags et_query
+            WHERE et_query.event_id = e.id
+              AND et_query.tag ILIKE '%' || #{query} || '%'
+          )
+        )
+      </if>
+      <if test="tags != null and tags.size > 0">
+        AND EXISTS (
+          SELECT 1
+          FROM event_tags et_filter
+          WHERE et_filter.event_id = e.id
+            AND LOWER(et_filter.tag) IN
+            <foreach collection="tags" item="tag" open="(" separator="," close=")">
+              #{tag}
+            </foreach>
+        )
+      </if>
+      <if test="attendanceModes != null and attendanceModes.size > 0">
+        AND e.attendance_mode IN
+        <foreach collection="attendanceModes" item="attendanceMode" open="(" separator="," close=")">
+          #{attendanceMode}
+        </foreach>
+      </if>
+      <if test="lat != null and lng != null and radiusKm != null">
+        AND <include refid="distanceExpression" /> &lt;= #{radiusKm}
+      </if>
+      <if test="scope == 'friends'">
+        AND EXISTS (
+          SELECT 1
+          FROM friend_requests fr_scope
+          WHERE fr_scope.status = 'accepted'
+            AND (
+              (fr_scope.requester_user_id = #{userId} AND fr_scope.recipient_user_id = e.creator_user_id)
+              OR (fr_scope.recipient_user_id = #{userId} AND fr_scope.requester_user_id = e.creator_user_id)
+            )
+        )
+      </if>
     ORDER BY
-      COALESCE(CASE WHEN efi.interacted_at IS NULL THEN efi.shown_count ELSE 0 END, 0) ASC,
-      MD5(#{seed} || ':' || e.id) ASC,
+      <choose>
+        <when test="sort == 'trending'">
+          e.participant_count DESC,
+          (SELECT COUNT(*) FROM event_likes el_trending WHERE el_trending.event_id = e.id) DESC,
+          COALESCE(e.start_at, e.when_iso) ASC,
+        </when>
+        <otherwise>
+          COALESCE(CASE WHEN efi.interacted_at IS NULL THEN efi.shown_count ELSE 0 END, 0) ASC,
+          MD5(#{seed} || ':' || e.id) ASC,
+        </otherwise>
+      </choose>
+      <if test="lat != null and lng != null">
+        <include refid="distanceExpression" /> ASC,
+      </if>
       COALESCE(e.start_at, e.when_iso) ASC,
       e.id ASC
     LIMIT #{limit}
