@@ -145,4 +145,26 @@
     ORDER BY cm.user_id ASC, upt.last_registered_at DESC
   </select>
 
+  <select id="findPushRecipientsForUsers" resultType="hr.kronos.backend.notifications.persistence.PushNotificationRecipientRow">
+    SELECT
+      upt.user_id,
+      upt.id AS token_id,
+      upt.token,
+      COALESCE(upt.locale, 'hr') AS locale
+    FROM user_push_tokens upt
+    WHERE upt.enabled = TRUE
+      <choose>
+        <when test="userIds != null and userIds.size() > 0">
+          AND upt.user_id IN
+          <foreach collection="userIds" item="userId" open="(" separator="," close=")">
+            #{userId}
+          </foreach>
+        </when>
+        <otherwise>
+          AND 1 = 0
+        </otherwise>
+      </choose>
+    ORDER BY upt.user_id ASC, upt.last_registered_at DESC
+  </select>
+
 </mapper>

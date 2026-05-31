@@ -34,4 +34,6 @@ public interface NotificationMapper {
   List<PushNotificationRecipientRow> findPushRecipientsForChatMessage(
       @Param("roomId") String roomId,
       @Param("senderUserId") String senderUserId);
+
+  List<PushNotificationRecipientRow> findPushRecipientsForUsers(@Param("userIds") List<String> userIds);
 }

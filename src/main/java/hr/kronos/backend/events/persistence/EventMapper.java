@@ -56,6 +56,15 @@ public interface EventMapper {
 
   List<EventParticipantRow> findParticipantsByEventId(@Param("eventId") String eventId);
 
+  List<EventNotificationRecipientRow> findActiveNotificationRecipientsForEvent(
+      @Param("eventId") String eventId,
+      @Param("excludeUserId") String excludeUserId);
+
+  List<EventNotificationRecipientRow> findReminderNotificationCandidates(
+      @Param("notificationType") String notificationType,
+      @Param("from") OffsetDateTime from,
+      @Param("to") OffsetDateTime to);
+
   int countWaitlistedParticipants(@Param("eventId") String eventId);
 
   long countAllEvents();
@@ -127,6 +136,14 @@ public interface EventMapper {
   int refreshEventRatingAggregate(@Param("eventId") String eventId);
 
   int insertNotification(
+      @Param("id") String id,
+      @Param("userId") String userId,
+      @Param("notificationType") String notificationType,
+      @Param("title") String title,
+      @Param("body") String body,
+      @Param("eventId") String eventId);
+
+  int insertNotificationIfAbsent(
       @Param("id") String id,
       @Param("userId") String userId,
       @Param("notificationType") String notificationType,

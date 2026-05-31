@@ -58,6 +58,8 @@ public class MessageService {
   private static final String MEMBER_ROLE_MEMBER = "member";
   private static final String MEMBER_ROLE_OWNER = "owner";
   private static final String VISIBILITY_FRIENDS = "friends";
+  private static final String PARTICIPANT_STATUS_APPROVED = "approved";
+  private static final String PARTICIPANT_STATUS_JOINED = "joined";
   private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
 
   private final MessageMapper messageMapper;
@@ -228,6 +230,7 @@ public class MessageService {
     if (event == null) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found.");
     }
+    requireEventChatAccess(event, userId);
 
     ChatRoomRow existing = messageMapper.findEventRoomForUser(eventId, userId);
     if (existing != null) {
@@ -252,6 +255,19 @@ public class MessageService {
     ChatRoomDto roomDto = getChatRoom(room.getId(), userId).room();
     publishRoomUpdated(room.getId());
     return roomDto;
+  }
+
+  private void requireEventChatAccess(EventRow event, String userId) {
+    if (event.getCreatorUserId() != null && event.getCreatorUserId().equals(userId)) {
+      return;
+    }
+
+    String status = event.getUserParticipantStatus();
+    if (PARTICIPANT_STATUS_JOINED.equals(status) || PARTICIPANT_STATUS_APPROVED.equals(status)) {
+      return;
+    }
+
+    throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Event chat is available after attendance is approved.");
   }
 
   public void leaveEventChatRoom(String eventId, String userId) {

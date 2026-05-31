@@ -548,6 +548,47 @@
       u.full_name ASC
   </select>
 
+  <select id="findActiveNotificationRecipientsForEvent" resultType="hr.kronos.backend.events.persistence.EventNotificationRecipientRow">
+    SELECT
+      e.id AS event_id,
+      ep.user_id,
+      e.title_hr,
+      e.title_en,
+      COALESCE(e.start_at, e.when_iso) AS start_at
+    FROM event_participants ep
+    INNER JOIN events e ON e.id = ep.event_id
+    WHERE ep.event_id = #{eventId}
+      AND ep.status IN ('joined', 'approved')
+      <if test="excludeUserId != null and excludeUserId != ''">
+        AND ep.user_id &lt;&gt; #{excludeUserId}
+      </if>
+    ORDER BY ep.user_id ASC
+  </select>
+
+  <select id="findReminderNotificationCandidates" resultType="hr.kronos.backend.events.persistence.EventNotificationRecipientRow">
+    SELECT
+      e.id AS event_id,
+      ep.user_id,
+      e.title_hr,
+      e.title_en,
+      COALESCE(e.start_at, e.when_iso) AS start_at
+    FROM events e
+    INNER JOIN event_participants ep
+      ON ep.event_id = e.id
+      AND ep.status IN ('joined', 'approved')
+    WHERE e.status = 'published'
+      AND COALESCE(e.start_at, e.when_iso) &gt;= #{from}
+      AND COALESCE(e.start_at, e.when_iso) &lt; #{to}
+      AND NOT EXISTS (
+        SELECT 1
+        FROM app_notifications existing
+        WHERE existing.user_id = ep.user_id
+          AND existing.event_id = e.id
+          AND existing.notification_type = #{notificationType}
+      )
+    ORDER BY COALESCE(e.start_at, e.when_iso) ASC, e.id ASC, ep.user_id ASC
+  </select>
+
   <select id="countWaitlistedParticipants" resultType="int">
     SELECT COUNT(*)::INTEGER
     FROM event_participants
@@ -982,6 +1023,31 @@
       #{title},
       #{body},
       #{eventId}
+    )
+  </insert>
+
+  <insert id="insertNotificationIfAbsent">
+    INSERT INTO app_notifications (
+      id,
+      user_id,
+      notification_type,
+      title,
+      body,
+      event_id
+    )
+    SELECT
+      #{id},
+      #{userId},
+      #{notificationType},
+      #{title},
+      #{body},
+      #{eventId}
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM app_notifications existing
+      WHERE existing.user_id = #{userId}
+        AND existing.event_id = #{eventId}
+        AND existing.notification_type = #{notificationType}
     )
   </insert>
 

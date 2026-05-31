@@ -18,10 +18,12 @@ import hr.kronos.backend.api.dto.SavedEventsOverviewDto;
 import hr.kronos.backend.api.dto.UpdateEventRequest;
 import hr.kronos.backend.events.persistence.EventMapper;
 import hr.kronos.backend.events.persistence.EventMediaRow;
+import hr.kronos.backend.events.persistence.EventNotificationRecipientRow;
 import hr.kronos.backend.events.persistence.EventParticipantRow;
 import hr.kronos.backend.events.persistence.EventRow;
 import hr.kronos.backend.events.persistence.FeedPreferenceRow;
 import hr.kronos.backend.messages.MessageService;
+import hr.kronos.backend.notifications.NotificationService;
 import hr.kronos.backend.payments.persistence.PaymentMapper;
 import hr.kronos.backend.storage.ObjectStorageProperties;
 import hr.kronos.backend.storage.ObjectStorageService;
@@ -98,9 +100,14 @@ public class EventService {
   private static final String CONTENT_TYPE_MP4 = "video/mp4";
   private static final String CONTENT_TYPE_QUICKTIME = "video/quicktime";
   private static final String CONTENT_TYPE_M4V = "video/x-m4v";
+  private static final String NOTIFICATION_EVENT_UPDATED = "event_updated";
+  private static final String NOTIFICATION_WAITLIST_APPROVED = "event_attendance_approved";
+  private static final String NOTIFICATION_REMINDER_WEEK = "event_reminder_week";
+  private static final String NOTIFICATION_REMINDER_DAY = "event_reminder_day";
 
   private final EventMapper eventMapper;
   private final MessageService messageService;
+  private final NotificationService notificationService;
   private final PaymentMapper paymentMapper;
   private final ObjectStorageService objectStorageService;
   private final ObjectStorageProperties objectStorageProperties;
@@ -108,11 +115,13 @@ public class EventService {
   public EventService(
       EventMapper eventMapper,
       MessageService messageService,
+      NotificationService notificationService,
       PaymentMapper paymentMapper,
       ObjectStorageService objectStorageService,
       ObjectStorageProperties objectStorageProperties) {
     this.eventMapper = eventMapper;
     this.messageService = messageService;
+    this.notificationService = notificationService;
     this.paymentMapper = paymentMapper;
     this.objectStorageService = objectStorageService;
     this.objectStorageProperties = objectStorageProperties;
@@ -523,6 +532,24 @@ public class EventService {
     Integer capacity = firstNonNull(request.capacity(), current.getCapacity());
     CoordinatesDto coordinates = resolveUpdatedCoordinates(request, current);
     List<String> tags = request.tags() == null ? tagsFromRow(current) : normalizeTags(request.tags());
+    boolean shouldNotifyParticipants = hasEventUpdateNotificationChange(
+        current,
+        title,
+        where,
+        about,
+        firstNonBlank(request.address(), current.getAddress()),
+        startAt,
+        endAt,
+        visibility,
+        attendanceMode,
+        priceAmount,
+        priceCurrency,
+        capacity,
+        coordinates,
+        request.entranceCoordinates(),
+        request.entryInstructions(),
+        normalizeStatus(firstNonBlank(request.status(), current.getStatus())),
+        tags);
 
     validateCommercialFields(attendanceMode, priceAmount, priceCurrency, capacity);
     validateCoordinates(coordinates, "coordinates");
@@ -562,6 +589,9 @@ public class EventService {
     eventMapper.update(current);
     syncTags(current.getId(), tags);
     syncTicketProduct(current);
+    if (shouldNotifyParticipants) {
+      notifyEventUpdated(current, userId);
+    }
     return getEventById(eventId, userId);
   }
 
@@ -1043,7 +1073,15 @@ public class EventService {
   public List<EventParticipantDto> approveParticipant(String eventId, String participantUserId, String userId) {
     requireOwnedEvent(eventId, userId);
     eventMapper.updateParticipantStatus(eventId, participantUserId, PARTICIPANT_STATUS_APPROVED);
-    notifyParticipant(eventId, participantUserId, "event_attendance_approved", "Dolazak odobren", "Organizator je odobrio tvoj dolazak na event.");
+    messageService.getOrCreateEventChatRoom(eventId, participantUserId);
+    notifyParticipant(
+        eventId,
+        participantUserId,
+        NOTIFICATION_WAITLIST_APPROVED,
+        "Dolazak odobren",
+        "Attendance approved",
+        "Organizator je odobrio tvoj dolazak na event.",
+        "The organizer approved your attendance.");
     return getParticipants(eventId, userId);
   }
 
@@ -1063,7 +1101,14 @@ public class EventService {
       eventMapper.decrementParticipantCount(event.getId());
     }
     messageService.leaveEventChatRoom(eventId, participantUserId);
-    notifyParticipant(eventId, participantUserId, "event_attendance_removed", "Maknut si s eventa", "Organizator te maknuo s eventa.");
+    notifyParticipant(
+        eventId,
+        participantUserId,
+        "event_attendance_removed",
+        "Maknut si s eventa",
+        "Removed from event",
+        "Organizator te maknuo s eventa.",
+        "The organizer removed you from the event.");
     return getParticipants(eventId, userId);
   }
 
@@ -1088,7 +1133,14 @@ public class EventService {
       eventMapper.decrementParticipantCount(event.getId());
     }
     messageService.leaveEventChatRoom(eventId, participantUserId);
-    notifyParticipant(eventId, participantUserId, "event_attendance_blocked", "Blokiran si za event", "Organizator te blokirao za ovaj event.");
+    notifyParticipant(
+        eventId,
+        participantUserId,
+        "event_attendance_blocked",
+        "Blokiran si za event",
+        "Blocked from event",
+        "Organizator te blokirao za ovaj event.",
+        "The organizer blocked you from this event.");
     return getParticipants(eventId, userId);
   }
 
@@ -1358,14 +1410,123 @@ public class EventService {
     eventMapper.markPastEventsFinished();
   }
 
-  private void notifyParticipant(String eventId, String userId, String type, String title, String body) {
+  @Scheduled(fixedDelayString = "PT1H")
+  public void sendEventReminders() {
+    OffsetDateTime now = OffsetDateTime.now();
+    sendEventReminderWindow(NOTIFICATION_REMINDER_WEEK, now.plusDays(7), now.plusDays(7).plusHours(1));
+    sendEventReminderWindow(NOTIFICATION_REMINDER_DAY, now.plusDays(1), now.plusDays(1).plusHours(1));
+  }
+
+  private void sendEventReminderWindow(String notificationType, OffsetDateTime from, OffsetDateTime to) {
+    List<EventNotificationRecipientRow> candidates = eventMapper.findReminderNotificationCandidates(notificationType, from, to);
+    for (EventNotificationRecipientRow candidate : candidates) {
+      boolean weekReminder = NOTIFICATION_REMINDER_WEEK.equals(notificationType);
+      String titleHr = weekReminder ? "Event je za tjedan dana" : "Event je sutra";
+      String titleEn = weekReminder ? "Event is in one week" : "Event is tomorrow";
+      String bodyHr = firstNonBlank(candidate.getTitleHr(), "Event");
+      String bodyEn = firstNonBlank(candidate.getTitleEn(), firstNonBlank(candidate.getTitleHr(), "Event"));
+      int inserted = eventMapper.insertNotificationIfAbsent(
+          notificationId(),
+          candidate.getUserId(),
+          notificationType,
+          titleHr,
+          bodyHr,
+          candidate.getEventId());
+      if (inserted > 0) {
+        notificationService.sendEventPush(
+            List.of(candidate.getUserId()),
+            notificationType,
+            candidate.getEventId(),
+            titleHr,
+            titleEn,
+            bodyHr,
+            bodyEn);
+      }
+    }
+  }
+
+  private void notifyParticipant(String eventId, String userId, String type, String titleHr, String titleEn, String bodyHr, String bodyEn) {
     eventMapper.insertNotification(
-        "notif-" + UUID.randomUUID().toString().replace("-", "").substring(0, 18),
+        notificationId(),
         userId,
         type,
-        title,
-        body,
+        titleHr,
+        bodyHr,
         eventId);
+    notificationService.sendEventPush(List.of(userId), type, eventId, titleHr, titleEn, bodyHr, bodyEn);
+  }
+
+  private void notifyEventUpdated(EventRow event, String updaterUserId) {
+    List<EventNotificationRecipientRow> recipients =
+        eventMapper.findActiveNotificationRecipientsForEvent(event.getId(), updaterUserId);
+    if (recipients.isEmpty()) {
+      return;
+    }
+
+    String titleHr = "Event je promijenjen";
+    String titleEn = "Event changed";
+    String bodyHr = firstNonBlank(event.getTitleHr(), "Event") + " ima nove detalje.";
+    String bodyEn = firstNonBlank(event.getTitleEn(), firstNonBlank(event.getTitleHr(), "Event")) + " has updated details.";
+    List<String> userIds = recipients.stream().map(EventNotificationRecipientRow::getUserId).distinct().toList();
+
+    for (String recipientUserId : userIds) {
+      eventMapper.insertNotification(notificationId(), recipientUserId, NOTIFICATION_EVENT_UPDATED, titleHr, bodyHr, event.getId());
+    }
+    notificationService.sendEventPush(userIds, NOTIFICATION_EVENT_UPDATED, event.getId(), titleHr, titleEn, bodyHr, bodyEn);
+  }
+
+  private boolean hasEventUpdateNotificationChange(
+      EventRow current,
+      String title,
+      String where,
+      String about,
+      String address,
+      OffsetDateTime startAt,
+      OffsetDateTime endAt,
+      String visibility,
+      String attendanceMode,
+      BigDecimal priceAmount,
+      String priceCurrency,
+      Integer capacity,
+      CoordinatesDto coordinates,
+      CoordinatesDto entranceCoordinates,
+      String entryInstructions,
+      String status,
+      List<String> tags) {
+    return !Objects.equals(trimToNull(current.getTitleHr()), trimToNull(title))
+        || !Objects.equals(trimToNull(current.getWhereHr()), trimToNull(where))
+        || !Objects.equals(trimToNull(current.getAboutHr()), trimToNull(about))
+        || !Objects.equals(trimToNull(current.getAddress()), trimToNull(address))
+        || !Objects.equals(current.getStartAt(), startAt)
+        || !Objects.equals(current.getEndAt(), endAt)
+        || !Objects.equals(trimToNull(current.getVisibility()), trimToNull(visibility))
+        || !Objects.equals(trimToNull(current.getAttendanceMode()), trimToNull(attendanceMode))
+        || !sameMoney(current.getPriceAmount(), priceAmount)
+        || !Objects.equals(trimToNull(current.getPriceCurrency()), trimToNull(priceCurrency))
+        || !Objects.equals(current.getCapacity(), capacity)
+        || !sameCoordinate(current.getLatitude(), current.getLongitude(), coordinates)
+        || (entranceCoordinates != null && !sameCoordinate(current.getEntranceLatitude(), current.getEntranceLongitude(), entranceCoordinates))
+        || (entryInstructions != null && !Objects.equals(trimToNull(current.getEntryInstructionsHr()), trimToNull(entryInstructions)))
+        || !Objects.equals(trimToNull(current.getStatus()), trimToNull(status))
+        || !Objects.equals(tagsFromRow(current), tags);
+  }
+
+  private boolean sameCoordinate(Double latitude, Double longitude, CoordinatesDto coordinates) {
+    if (coordinates == null) {
+      return latitude == null && longitude == null;
+    }
+    return Objects.equals(latitude, coordinates.latitude()) && Objects.equals(longitude, coordinates.longitude());
+  }
+
+  private boolean sameMoney(BigDecimal left, BigDecimal right) {
+    if (left == null || right == null) {
+      return left == null && right == null;
+    }
+    return left.compareTo(right) == 0;
+  }
+
+  private String notificationId() {
+    return "notif-" + UUID.randomUUID().toString().replace("-", "").substring(0, 18);
   }
 
   private boolean canRateOrganizer(EventRow row, String userId) {

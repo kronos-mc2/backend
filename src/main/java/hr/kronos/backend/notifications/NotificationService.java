@@ -20,6 +20,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -173,6 +174,54 @@ public class NotificationService {
     }
   }
 
+  @Async
+  public void sendEventPush(
+      List<String> userIds,
+      String notificationType,
+      String eventId,
+      String titleHr,
+      String titleEn,
+      String bodyHr,
+      String bodyEn) {
+    if (!pushEnabled || userIds == null || userIds.isEmpty()) {
+      return;
+    }
+
+    List<String> distinctUserIds = userIds.stream().filter(Objects::nonNull).distinct().toList();
+    if (distinctUserIds.isEmpty()) {
+      return;
+    }
+
+    List<PushNotificationRecipientRow> recipients = notificationMapper.findPushRecipientsForUsers(distinctUserIds);
+    if (recipients.isEmpty()) {
+      return;
+    }
+
+    List<Map<String, Object>> payloads = recipients.stream()
+        .map(recipient -> toExpoEventPushPayload(recipient, notificationType, eventId, titleHr, titleEn, bodyHr, bodyEn))
+        .toList();
+
+    try {
+      HttpRequest request = HttpRequest.newBuilder(URI.create(expoPushEndpoint))
+          .timeout(Duration.ofSeconds(6))
+          .header("Accept", "application/json")
+          .header("Content-Type", "application/json")
+          .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payloads)))
+          .build();
+      HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+      if (response.statusCode() >= 400) {
+        LOGGER.warn("Expo event push request failed with status {}", response.statusCode());
+        return;
+      }
+      disableInvalidTokens(response.body(), recipients);
+    } catch (IOException exception) {
+      LOGGER.warn("Expo event push request failed.", exception);
+    } catch (InterruptedException exception) {
+      Thread.currentThread().interrupt();
+      LOGGER.warn("Expo event push request interrupted.", exception);
+    }
+  }
+
   private Map<String, Object> toExpoPushPayload(PushNotificationRecipientRow recipient, ChatMessageDto message) {
     return Map.of(
         "to", recipient.getToken(),
@@ -185,6 +234,28 @@ public class NotificationService {
             "type", "chat_message",
             "roomId", message.roomId(),
             "messageId", message.id()));
+  }
+
+  private Map<String, Object> toExpoEventPushPayload(
+      PushNotificationRecipientRow recipient,
+      String notificationType,
+      String eventId,
+      String titleHr,
+      String titleEn,
+      String bodyHr,
+      String bodyEn) {
+    boolean english = isEnglish(recipient.getLocale());
+    return Map.of(
+        "to", recipient.getToken(),
+        "sound", "default",
+        "channelId", "messages",
+        "priority", "high",
+        "title", firstNonBlank(english ? titleEn : titleHr, titleHr, titleEn, "Gdje i Kada"),
+        "body", trimNotificationBody(firstNonBlank(english ? bodyEn : bodyHr, bodyHr, bodyEn, "Event")),
+        "data", Map.of(
+            "type", "event_notification",
+            "notificationType", firstNonBlank(notificationType, "event_notification"),
+            "eventId", firstNonBlank(eventId, "")));
   }
 
   private void disableInvalidTokens(String responseBody, List<PushNotificationRecipientRow> recipients) {
