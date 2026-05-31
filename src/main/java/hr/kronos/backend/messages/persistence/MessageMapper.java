@@ -25,7 +25,11 @@ public interface MessageMapper {
 
   ChatRoomRow findDirectRoomForUsers(@Param("userId") String userId, @Param("memberUserId") String memberUserId);
 
-  List<ChatMessageRow> findMessagesForRoom(@Param("roomId") String roomId, @Param("userId") String userId);
+  List<ChatMessageRow> findMessagesForRoom(
+      @Param("roomId") String roomId,
+      @Param("userId") String userId,
+      @Param("afterMessageId") String afterMessageId,
+      @Param("limit") int limit);
 
   ChatMessageRow findMessageById(@Param("messageId") String messageId, @Param("userId") String userId);
 

@@ -292,9 +292,34 @@
       m.poll_id,
       m.friend_request_id,
       m.created_at
-    FROM messages m
+    FROM (
+      SELECT *
+      FROM messages m
+      WHERE m.room_id = #{roomId}
+        <if test="afterMessageId != null and afterMessageId != ''">
+          AND (
+            m.created_at,
+            m.id
+          ) &gt; (
+            SELECT after_message.created_at, after_message.id
+            FROM messages after_message
+            WHERE after_message.room_id = #{roomId}
+              AND after_message.id = #{afterMessageId}
+            LIMIT 1
+          )
+        </if>
+      ORDER BY
+        <choose>
+          <when test="afterMessageId != null and afterMessageId != ''">
+            m.created_at ASC, m.id ASC
+          </when>
+          <otherwise>
+            m.created_at DESC, m.id DESC
+          </otherwise>
+        </choose>
+      LIMIT #{limit}
+    ) m
     LEFT JOIN app_users u ON u.id = m.sender_user_id
-    WHERE m.room_id = #{roomId}
     ORDER BY m.created_at ASC, m.id ASC
   </select>
 

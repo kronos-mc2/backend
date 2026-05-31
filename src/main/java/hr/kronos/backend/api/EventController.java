@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import hr.kronos.backend.api.dto.AppEventDto;
 import hr.kronos.backend.api.dto.CreateFeedPreferenceRequest;
 import hr.kronos.backend.api.dto.CreateEventRequest;
+import hr.kronos.backend.api.dto.EventCacheStateDto;
 import hr.kronos.backend.api.dto.EventMediaRequest;
 import hr.kronos.backend.api.dto.EventParticipantDto;
 import hr.kronos.backend.api.dto.EventRatingRequest;
@@ -71,6 +72,12 @@ public class EventController {
   public AppEventDto getEventById(@PathVariable String id, Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
     return eventService.getEventById(id, userId);
+  }
+
+  @GetMapping("/events/{id}/cache-state")
+  public EventCacheStateDto getEventCacheState(@PathVariable String id, Authentication authentication) {
+    String userId = AuthenticatedUser.userId(authentication);
+    return eventService.getEventCacheState(id, userId);
   }
 
   @GetMapping("/feed")
@@ -250,6 +257,19 @@ public class EventController {
       @RequestHeader(value = HttpHeaders.RANGE, required = false) String rangeHeader,
       Authentication authentication) {
     return getEventMediaContent(id, mediaId, rangeHeader, authentication);
+  }
+
+  @GetMapping("/events/{id}/media/{mediaId}/thumbnail")
+  public ResponseEntity<byte[]> getEventMediaThumbnail(
+      @PathVariable String id, @PathVariable String mediaId, Authentication authentication) {
+    String userId = AuthenticatedUser.userId(authentication);
+    StoredObjectContent content = eventService.getMediaThumbnailContent(id, mediaId, userId);
+    return ResponseEntity.ok()
+        .contentType(MediaType.parseMediaType(content.contentType()))
+        .contentLength(content.contentLength())
+        .cacheControl(CacheControl.maxAge(5, TimeUnit.MINUTES).cachePrivate())
+        .header("X-Content-Type-Options", "nosniff")
+        .body(content.bytes());
   }
 
   @DeleteMapping("/events/{id}/media/{mediaId}")

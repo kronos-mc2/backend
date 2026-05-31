@@ -13,6 +13,12 @@ public class EventMediaRow {
   private Long byteSize;
   private Integer width;
   private Integer height;
+  private String thumbnailStorageKey;
+  private String thumbnailBucketName;
+  private String thumbnailContentType;
+  private Long thumbnailByteSize;
+  private Integer thumbnailWidth;
+  private Integer thumbnailHeight;
   private int sortOrder;
 
   public String getId() {
@@ -109,6 +115,54 @@ public class EventMediaRow {
 
   public void setHeight(Integer height) {
     this.height = height;
+  }
+
+  public String getThumbnailStorageKey() {
+    return thumbnailStorageKey;
+  }
+
+  public void setThumbnailStorageKey(String thumbnailStorageKey) {
+    this.thumbnailStorageKey = thumbnailStorageKey;
+  }
+
+  public String getThumbnailBucketName() {
+    return thumbnailBucketName;
+  }
+
+  public void setThumbnailBucketName(String thumbnailBucketName) {
+    this.thumbnailBucketName = thumbnailBucketName;
+  }
+
+  public String getThumbnailContentType() {
+    return thumbnailContentType;
+  }
+
+  public void setThumbnailContentType(String thumbnailContentType) {
+    this.thumbnailContentType = thumbnailContentType;
+  }
+
+  public Long getThumbnailByteSize() {
+    return thumbnailByteSize;
+  }
+
+  public void setThumbnailByteSize(Long thumbnailByteSize) {
+    this.thumbnailByteSize = thumbnailByteSize;
+  }
+
+  public Integer getThumbnailWidth() {
+    return thumbnailWidth;
+  }
+
+  public void setThumbnailWidth(Integer thumbnailWidth) {
+    this.thumbnailWidth = thumbnailWidth;
+  }
+
+  public void setThumbnailHeight(Integer thumbnailHeight) {
+    this.thumbnailHeight = thumbnailHeight;
+  }
+
+  public Integer getThumbnailHeight() {
+    return thumbnailHeight;
   }
 
   public int getSortOrder() {

@@ -66,6 +66,8 @@ public interface EventMapper {
 
   int insertMedia(EventMediaRow media);
 
+  int touchEvent(@Param("eventId") String eventId);
+
   int insertTag(@Param("eventId") String eventId, @Param("tag") String tag);
 
   int deleteTags(@Param("eventId") String eventId);

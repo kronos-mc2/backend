@@ -29,6 +29,8 @@ public record AppEventDto(
     Integer capacity,
     String status,
     String sourceUrl,
+    String updatedAt,
+    String cacheVersion,
     java.math.BigDecimal eventRatingAverage,
     int eventRatingCount,
     BigDecimal organizerRatingAverage,

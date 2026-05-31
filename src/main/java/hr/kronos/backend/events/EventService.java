@@ -2,6 +2,7 @@ package hr.kronos.backend.events;
 
 import hr.kronos.backend.api.dto.AppEventDto;
 import hr.kronos.backend.api.dto.CoordinatesDto;
+import hr.kronos.backend.api.dto.EventCacheStateDto;
 import hr.kronos.backend.api.dto.CreateFeedPreferenceRequest;
 import hr.kronos.backend.api.dto.CreateEventRequest;
 import hr.kronos.backend.api.dto.EventMediaRequest;
@@ -26,8 +27,11 @@ import hr.kronos.backend.storage.ObjectStorageProperties;
 import hr.kronos.backend.storage.ObjectStorageService;
 import hr.kronos.backend.storage.StoredObjectContent;
 import hr.kronos.backend.storage.StoredObject;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -87,6 +91,8 @@ public class EventService {
   private static final int MAX_EVENT_TAGS = 10;
   private static final int MAX_EVENT_IMAGES = 5;
   private static final int MAX_EVENT_VIDEOS = 1;
+  private static final int THUMBNAIL_MAX_WIDTH = 600;
+  private static final int THUMBNAIL_MAX_HEIGHT = 400;
   private static final String CONTENT_TYPE_JPEG = "image/jpeg";
   private static final String CONTENT_TYPE_PNG = "image/png";
   private static final String CONTENT_TYPE_MP4 = "video/mp4";
@@ -218,6 +224,12 @@ public class EventService {
     markPastEventsFinished();
     EventRow row = getAccessibleEvent(eventId, userId);
     return toDto(row, eventMapper.findMediaByEventId(row.getId()).stream().map(this::toMediaDto).toList());
+  }
+
+  public EventCacheStateDto getEventCacheState(String eventId, String userId) {
+    markPastEventsFinished();
+    EventRow row = getAccessibleEvent(eventId, userId);
+    return new EventCacheStateDto(row.getId(), eventCacheVersion(row), timestamp(row.getUpdatedAt()));
   }
 
   public List<AppEventDto> getMyEvents(String userId, String filter) {
@@ -620,6 +632,7 @@ public class EventService {
     media.setThumbnailUrl(trimToNull(request.thumbnailUrl()));
     media.setSortOrder(eventMapper.findMediaByEventId(eventId).size());
     eventMapper.insertMedia(media);
+    eventMapper.touchEvent(eventId);
     return getEventById(eventId, userId);
   }
 
@@ -632,6 +645,18 @@ public class EventService {
 
     StoredObjectContent content = objectStorageService.get(resolveBucketName(media), media.getStorageKey());
     String contentType = firstNonBlank(media.getContentType(), firstNonBlank(content.contentType(), defaultContentType(media.getMediaType())));
+    return new StoredObjectContent(content.bytes(), contentType, content.contentLength());
+  }
+
+  public StoredObjectContent getMediaThumbnailContent(String eventId, String mediaId, String userId) {
+    EventRow event = getAccessibleEvent(eventId, userId);
+    EventMediaRow media = eventMapper.findMediaById(event.getId(), mediaId);
+    if (media == null || trimToNull(media.getThumbnailStorageKey()) == null) {
+      return getMediaContent(eventId, mediaId, userId);
+    }
+
+    StoredObjectContent content = objectStorageService.get(resolveThumbnailBucketName(media), media.getThumbnailStorageKey());
+    String contentType = firstNonBlank(media.getThumbnailContentType(), firstNonBlank(content.contentType(), CONTENT_TYPE_JPEG));
     return new StoredObjectContent(content.bytes(), contentType, content.contentLength());
   }
 
@@ -659,6 +684,7 @@ public class EventService {
     EventMediaRow media =
         buildUploadedVideoMedia(eventId, bytes, contentType, filename, eventMapper.findMediaByEventId(eventId).size());
     eventMapper.insertMedia(media);
+    eventMapper.touchEvent(eventId);
     return getEventById(eventId, userId);
   }
 
@@ -673,6 +699,7 @@ public class EventService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "event must keep at least one image.");
     }
     eventMapper.deleteMedia(eventId, mediaId);
+    eventMapper.touchEvent(eventId);
     deleteStoredObject(media);
     return getEventById(eventId, userId);
   }
@@ -703,6 +730,7 @@ public class EventService {
       media.setSortOrder(eventMapper.findMediaByEventId(eventId).size());
       eventMapper.insertMedia(media);
     }
+    eventMapper.touchEvent(eventId);
   }
 
   private void uploadImageFiles(String eventId, List<MultipartFile> images, String userId) {
@@ -713,6 +741,7 @@ public class EventService {
       EventMediaRow media = buildUploadedImageMedia(eventId, image, eventMapper.findMediaByEventId(eventId).size());
       eventMapper.insertMedia(media);
     }
+    eventMapper.touchEvent(eventId);
   }
 
   private void uploadVideoFile(String eventId, MultipartFile video, String userId) {
@@ -724,6 +753,7 @@ public class EventService {
     ensureMediaCapacity(eventId, MEDIA_TYPE_VIDEO, 1);
     EventMediaRow media = buildUploadedVideoMedia(eventId, video, eventMapper.findMediaByEventId(eventId).size());
     eventMapper.insertMedia(media);
+    eventMapper.touchEvent(eventId);
   }
 
   private EventMediaRow buildUploadedImageMedia(String eventId, MultipartFile file, int sortOrder) {
@@ -752,7 +782,7 @@ public class EventService {
       media.setEventId(eventId);
       media.setMediaType(MEDIA_TYPE_IMAGE);
       media.setUrl(storedObject.url());
-      media.setThumbnailUrl(storedObject.url());
+      applyImageThumbnail(media, eventId, image);
       media.setOriginalFilename(normalizeOriginalFilename(file.getOriginalFilename()));
       media.setStorageKey(storedObject.storageKey());
       media.setBucketName(storedObject.bucketName());
@@ -924,6 +954,54 @@ public class EventService {
     return "events/" + eventId + "/" + mediaType + "/" + UUID.randomUUID().toString().replace("-", "") + "." + extension;
   }
 
+  private void applyImageThumbnail(EventMediaRow media, String eventId, BufferedImage sourceImage) throws IOException {
+    BufferedImage thumbnail = resizeThumbnail(sourceImage);
+    byte[] bytes = encodeJpeg(thumbnail);
+    ensureStorageQuota(bytes.length);
+    StoredObject thumbnailObject = objectStorageService.putImage(
+        buildStorageKey(eventId, "thumbnail", CONTENT_TYPE_JPEG),
+        bytes,
+        CONTENT_TYPE_JPEG,
+        thumbnail.getWidth(),
+        thumbnail.getHeight());
+
+    media.setThumbnailUrl(thumbnailObject.url());
+    media.setThumbnailStorageKey(thumbnailObject.storageKey());
+    media.setThumbnailBucketName(thumbnailObject.bucketName());
+    media.setThumbnailContentType(thumbnailObject.contentType());
+    media.setThumbnailByteSize(thumbnailObject.byteSize());
+    media.setThumbnailWidth(thumbnailObject.width());
+    media.setThumbnailHeight(thumbnailObject.height());
+  }
+
+  private BufferedImage resizeThumbnail(BufferedImage sourceImage) {
+    double scale = Math.min(
+        (double) THUMBNAIL_MAX_WIDTH / sourceImage.getWidth(),
+        (double) THUMBNAIL_MAX_HEIGHT / sourceImage.getHeight());
+    scale = Math.min(1, scale);
+    int width = Math.max(1, (int) Math.round(sourceImage.getWidth() * scale));
+    int height = Math.max(1, (int) Math.round(sourceImage.getHeight() * scale));
+    BufferedImage thumbnail = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+    Graphics2D graphics = thumbnail.createGraphics();
+    try {
+      graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+      graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+      graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+      graphics.drawImage(sourceImage, 0, 0, width, height, null);
+    } finally {
+      graphics.dispose();
+    }
+    return thumbnail;
+  }
+
+  private byte[] encodeJpeg(BufferedImage image) throws IOException {
+    ByteArrayOutputStream output = new ByteArrayOutputStream();
+    if (!ImageIO.write(image, "jpg", output)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "thumbnail could not be generated.");
+    }
+    return output.toByteArray();
+  }
+
   private String storageExtension(String mediaType, String contentType) {
     if (MEDIA_TYPE_VIDEO.equals(mediaType)) {
       if (CONTENT_TYPE_QUICKTIME.equals(contentType)) {
@@ -933,6 +1011,9 @@ public class EventService {
         return "m4v";
       }
       return "mp4";
+    }
+    if ("thumbnail".equals(mediaType)) {
+      return "jpg";
     }
     return CONTENT_TYPE_PNG.equals(contentType) ? "png" : "jpg";
   }
@@ -945,9 +1026,18 @@ public class EventService {
 
   private void deleteStoredObject(EventMediaRow media) {
     if (media == null || trimToNull(media.getBucketName()) == null || trimToNull(media.getStorageKey()) == null) {
+      deleteStoredThumbnail(media);
       return;
     }
     objectStorageService.delete(media.getBucketName(), media.getStorageKey());
+    deleteStoredThumbnail(media);
+  }
+
+  private void deleteStoredThumbnail(EventMediaRow media) {
+    if (media == null || trimToNull(media.getThumbnailBucketName()) == null || trimToNull(media.getThumbnailStorageKey()) == null) {
+      return;
+    }
+    objectStorageService.delete(media.getThumbnailBucketName(), media.getThumbnailStorageKey());
   }
 
   public List<EventParticipantDto> approveParticipant(String eventId, String participantUserId, String userId) {
@@ -1042,6 +1132,8 @@ public class EventService {
         row.getCapacity(),
         row.getStatus(),
         row.getSourceUrl(),
+        timestamp(row.getUpdatedAt()),
+        eventCacheVersion(row),
         row.getEventRatingAverage() == null ? BigDecimal.ZERO : row.getEventRatingAverage(),
         row.getEventRatingCount(),
         row.getOrganizerRatingAverage() == null ? BigDecimal.ZERO : row.getOrganizerRatingAverage(),
@@ -1055,6 +1147,10 @@ public class EventService {
         canJoin(row),
         tagsFromRow(row),
         media == null || media.isEmpty() ? null : media);
+  }
+
+  private String eventCacheVersion(EventRow row) {
+    return row.getUpdatedAt() == null ? row.getId() : row.getId() + ":" + row.getUpdatedAt().toInstant().toEpochMilli();
   }
 
   private FeedPreferenceDto toFeedPreferenceDto(FeedPreferenceRow row) {
@@ -1077,7 +1173,7 @@ public class EventService {
 
   private EventMediaDto toMediaDto(EventMediaRow row) {
     String url = mediaUrl(row, row.getUrl());
-    String thumbnailUrl = mediaUrl(row, firstNonBlank(row.getThumbnailUrl(), row.getUrl()));
+    String thumbnailUrl = thumbnailUrl(row);
     return new EventMediaDto(
         row.getId(),
         row.getMediaType(),
@@ -1088,6 +1184,13 @@ public class EventService {
         row.getWidth(),
         row.getHeight(),
         row.getSortOrder());
+  }
+
+  private String thumbnailUrl(EventMediaRow row) {
+    if (trimToNull(row.getThumbnailStorageKey()) != null) {
+      return "/api/events/" + row.getEventId() + "/media/" + row.getId() + "/thumbnail";
+    }
+    return mediaUrl(row, firstNonBlank(row.getThumbnailUrl(), row.getUrl()));
   }
 
   private Map<String, List<EventMediaDto>> loadMediaByEventIds(List<EventRow> rows) {
@@ -1123,6 +1226,10 @@ public class EventService {
 
   private String resolveBucketName(EventMediaRow media) {
     return firstNonBlank(media.getBucketName(), objectStorageProperties.getBucket());
+  }
+
+  private String resolveThumbnailBucketName(EventMediaRow media) {
+    return firstNonBlank(media.getThumbnailBucketName(), resolveBucketName(media));
   }
 
   private String defaultContentType(String mediaType) {

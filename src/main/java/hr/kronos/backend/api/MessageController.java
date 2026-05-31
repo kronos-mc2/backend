@@ -67,9 +67,13 @@ public class MessageController {
   }
 
   @GetMapping("/chat-rooms/{id}")
-  public ChatRoomDetailDto getChatRoom(@PathVariable String id, Authentication authentication) {
+  public ChatRoomDetailDto getChatRoom(
+      @PathVariable String id,
+      @RequestParam(required = false) String afterMessageId,
+      @RequestParam(required = false) Integer limit,
+      Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return messageService.getChatRoom(id, userId);
+    return messageService.getChatRoom(id, userId, afterMessageId, limit);
   }
 
   @PatchMapping("/chat-rooms/{id}")
@@ -89,9 +93,13 @@ public class MessageController {
   }
 
   @GetMapping("/chat-rooms/{id}/messages")
-  public List<ChatMessageDto> getMessages(@PathVariable String id, Authentication authentication) {
+  public List<ChatMessageDto> getMessages(
+      @PathVariable String id,
+      @RequestParam(required = false) String afterMessageId,
+      @RequestParam(required = false) Integer limit,
+      Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return messageService.getMessages(id, userId);
+    return messageService.getMessages(id, userId, afterMessageId, limit);
   }
 
   @PostMapping("/chat-rooms/{id}/messages")

@@ -50,6 +50,8 @@ public class MessageService {
   private static final int MAX_MESSAGE_LENGTH = 4000;
   private static final int MAX_POLL_OPTIONS = 8;
   private static final int MIN_PEOPLE_SEARCH_LENGTH = 2;
+  private static final int DEFAULT_MESSAGES_LIMIT = 200;
+  private static final int MAX_MESSAGES_LIMIT = 500;
   private static final String ROOM_TYPE_DIRECT = "direct";
   private static final String ROOM_TYPE_EVENT = "event";
   private static final String ROOM_TYPE_GROUP = "group";
@@ -94,30 +96,59 @@ public class MessageService {
   }
 
   public ChatRoomDetailDto getChatRoom(String roomId, String userId) {
+    return getChatRoom(roomId, userId, null, null);
+  }
+
+  public ChatRoomDetailDto getChatRoom(String roomId, String userId, String afterMessageId, Integer limit) {
     ChatRoomRow room = requireRoom(roomId, userId);
     List<ChatMemberDto> members = messageMapper.findMembersForRoom(roomId).stream().map(this::toMemberDto).toList();
-    List<ChatMessageDto> messages = messageMapper.findMessagesForRoom(roomId, userId).stream()
+    List<ChatMessageDto> messages = messageMapper.findMessagesForRoom(roomId, userId, trimToNull(afterMessageId), normalizeMessagesLimit(limit)).stream()
         .map(message -> toMessageDto(message, userId))
         .toList();
 
-    if (!messages.isEmpty()) {
-      messageMapper.markRoomRead(roomId, userId, messages.get(messages.size() - 1).id());
-    }
+    markRoomReadToLatestKnownMessage(roomId, userId, messages, afterMessageId);
 
     return new ChatRoomDetailDto(toRoomDto(room, members), messages);
   }
 
   public List<ChatMessageDto> getMessages(String roomId, String userId) {
+    return getMessages(roomId, userId, null, null);
+  }
+
+  public List<ChatMessageDto> getMessages(String roomId, String userId, String afterMessageId, Integer limit) {
     requireRoom(roomId, userId);
-    List<ChatMessageDto> messages = messageMapper.findMessagesForRoom(roomId, userId).stream()
+    List<ChatMessageDto> messages = messageMapper.findMessagesForRoom(roomId, userId, trimToNull(afterMessageId), normalizeMessagesLimit(limit)).stream()
         .map(message -> toMessageDto(message, userId))
         .toList();
 
-    if (!messages.isEmpty()) {
-      messageMapper.markRoomRead(roomId, userId, messages.get(messages.size() - 1).id());
-    }
+    markRoomReadToLatestKnownMessage(roomId, userId, messages, afterMessageId);
 
     return messages;
+  }
+
+  private void markRoomReadToLatestKnownMessage(
+      String roomId, String userId, List<ChatMessageDto> messages, String afterMessageId) {
+    if (!messages.isEmpty()) {
+      messageMapper.markRoomRead(roomId, userId, messages.get(messages.size() - 1).id());
+      return;
+    }
+
+    String normalizedAfterMessageId = trimToNull(afterMessageId);
+    if (normalizedAfterMessageId == null) {
+      return;
+    }
+
+    ChatMessageRow latestKnownMessage = messageMapper.findMessageById(normalizedAfterMessageId, userId);
+    if (latestKnownMessage != null && roomId.equals(latestKnownMessage.getRoomId())) {
+      messageMapper.markRoomRead(roomId, userId, latestKnownMessage.getId());
+    }
+  }
+
+  private int normalizeMessagesLimit(Integer limit) {
+    if (limit == null) {
+      return DEFAULT_MESSAGES_LIMIT;
+    }
+    return Math.max(1, Math.min(MAX_MESSAGES_LIMIT, limit));
   }
 
   public List<ChatPersonDto> searchPeople(String userId, String query) {

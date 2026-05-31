@@ -42,6 +42,7 @@ public class EventRow {
   private int waitlistCount;
   private String userParticipantStatus;
   private String tagsCsv;
+  private OffsetDateTime updatedAt;
 
   public String getId() {
     return id;
@@ -345,5 +346,13 @@ public class EventRow {
 
   public void setTagsCsv(String tagsCsv) {
     this.tagsCsv = tagsCsv;
+  }
+
+  public OffsetDateTime getUpdatedAt() {
+    return updatedAt;
+  }
+
+  public void setUpdatedAt(OffsetDateTime updatedAt) {
+    this.updatedAt = updatedAt;
   }
 }
