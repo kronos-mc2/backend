@@ -86,6 +86,7 @@ public class EventService {
   private static final int SAVED_GOING_SOON_LIMIT = 3;
   private static final int SAVED_PAST_LIMIT = 3;
   private static final int MAX_FEED_SEED_LENGTH = 80;
+  private static final int MAX_FEED_EXCLUDED_EVENT_IDS = 200;
   private static final String FEED_SCOPE_ALL = "all";
   private static final String FEED_SCOPE_FRIENDS = "friends";
   private static final String FEED_SORT_DEFAULT = "default";
@@ -182,6 +183,7 @@ public class EventService {
       String cursor,
       Integer limit,
       String seed,
+      String excludeEventIds,
       String from,
       String to,
       Double lat,
@@ -193,14 +195,17 @@ public class EventService {
       String scope,
       String sort) {
     markPastEventsFinished();
-    int offset = parseFeedOffset(cursor);
+    FeedCursor feedCursor = parseFeedCursor(cursor);
     int normalizedLimit = normalizeFeedLimit(limit);
     String normalizedSeed = normalizeFeedSeed(seed);
-    FeedFilters filters = normalizeFeedFilters(from, to, lat, lng, radiusKm, query, tags, attendanceModes, scope, sort);
+    FeedFilters filters =
+        normalizeFeedFilters(excludeEventIds, from, to, lat, lng, radiusKm, query, tags, attendanceModes, scope, sort);
+    List<String> feedExcludedEventIds = mergeExcludedEventIds(filters.excludeEventIds(), feedCursor.excludeEventIds());
     List<EventRow> rows =
         eventMapper.findFeedPage(
             userId,
             normalizedSeed,
+            feedExcludedEventIds,
             filters.from(),
             filters.to(),
             filters.lat(),
@@ -211,12 +216,12 @@ public class EventService {
             filters.attendanceModes(),
             filters.scope(),
             filters.sort(),
-            offset,
+            feedCursor.offset(),
             normalizedLimit + 1);
 
     boolean hasMore = rows.size() > normalizedLimit;
     List<EventRow> pageRows = hasMore ? rows.subList(0, normalizedLimit) : rows;
-    String nextCursor = hasMore ? encodeFeedCursor(offset + pageRows.size()) : null;
+    String nextCursor = hasMore ? encodeFeedCursor(appendReturnedEventIds(feedExcludedEventIds, pageRows)) : null;
     return new FeedPageDto(toDtosWithMedia(pageRows), nextCursor, hasMore);
   }
 
@@ -574,8 +579,10 @@ public class EventService {
     current.setEndAt(endAt);
     current.setLatitude(coordinates.latitude());
     current.setLongitude(coordinates.longitude());
-    current.setEntranceLatitude(request.entranceCoordinates() == null ? current.getEntranceLatitude() : request.entranceCoordinates().latitude());
-    current.setEntranceLongitude(request.entranceCoordinates() == null ? current.getEntranceLongitude() : request.entranceCoordinates().longitude());
+    if (request.entranceCoordinates() != null) {
+      current.setEntranceLatitude(request.entranceCoordinates().latitude());
+      current.setEntranceLongitude(request.entranceCoordinates().longitude());
+    }
     current.setEntryInstructionsHr(entryInstructions == null ? null : entryInstructions.hr());
     current.setEntryInstructionsEn(entryInstructions == null ? null : entryInstructions.en());
     current.setVisibility(visibility);
@@ -1544,6 +1551,7 @@ public class EventService {
   }
 
   private FeedFilters normalizeFeedFilters(
+      String excludeEventIds,
       String from,
       String to,
       Double lat,
@@ -1578,6 +1586,7 @@ public class EventService {
     }
 
     return new FeedFilters(
+        normalizeExcludedEventIds(excludeEventIds),
         fromDate,
         toDate,
         lat,
@@ -1588,6 +1597,45 @@ public class EventService {
         normalizeAttendanceModeFilter(attendanceModes),
         normalizeFeedScope(scope),
         normalizeFeedSort(sort));
+  }
+
+  private List<String> normalizeExcludedEventIds(String rawEventIds) {
+    String normalizedRawEventIds = trimToNull(rawEventIds);
+    if (normalizedRawEventIds == null) {
+      return List.of();
+    }
+
+    LinkedHashSet<String> normalized = new LinkedHashSet<>();
+    for (String rawEventId : normalizedRawEventIds.split(",")) {
+      String eventId = trimToNull(rawEventId);
+      if (eventId != null) {
+        normalized.add(eventId);
+      }
+    }
+
+    if (normalized.size() > MAX_FEED_EXCLUDED_EVENT_IDS) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST,
+          "excludeEventIds accepts up to " + MAX_FEED_EXCLUDED_EVENT_IDS + " event ids.");
+    }
+
+    return new ArrayList<>(normalized);
+  }
+
+  private List<String> mergeExcludedEventIds(List<String> first, List<String> second) {
+    LinkedHashSet<String> normalized = new LinkedHashSet<>();
+    if (first != null) {
+      normalized.addAll(first);
+    }
+    if (second != null) {
+      normalized.addAll(second);
+    }
+
+    if (normalized.size() > MAX_FEED_EXCLUDED_EVENT_IDS) {
+      return normalized.stream().skip(normalized.size() - MAX_FEED_EXCLUDED_EVENT_IDS).toList();
+    }
+
+    return new ArrayList<>(normalized);
   }
 
   private String normalizeFeedScope(String scope) {
@@ -1625,26 +1673,40 @@ public class EventService {
     return limit;
   }
 
-  private int parseFeedOffset(String cursor) {
+  private FeedCursor parseFeedCursor(String cursor) {
     String normalized = trimToNull(cursor);
     if (normalized == null) {
-      return 0;
+      return new FeedCursor(0, List.of());
     }
 
     try {
       String decoded = new String(Base64.getUrlDecoder().decode(normalized), StandardCharsets.UTF_8);
+      if (decoded.startsWith("v2:")) {
+        return new FeedCursor(0, normalizeExcludedEventIds(decoded.substring(3)));
+      }
+
       int offset = Integer.parseInt(decoded);
       if (offset < 0) {
         throw new IllegalArgumentException("Invalid feed cursor.");
       }
-      return offset;
+      return new FeedCursor(offset, List.of());
     } catch (IllegalArgumentException _) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid cursor format.");
     }
   }
 
-  private String encodeFeedCursor(int offset) {
-    return Base64.getUrlEncoder().withoutPadding().encodeToString(String.valueOf(offset).getBytes(StandardCharsets.UTF_8));
+  private List<String> appendReturnedEventIds(List<String> excludedEventIds, List<EventRow> returnedRows) {
+    LinkedHashSet<String> normalized = new LinkedHashSet<>();
+    if (excludedEventIds != null) {
+      normalized.addAll(excludedEventIds);
+    }
+    returnedRows.stream().map(EventRow::getId).filter(Objects::nonNull).forEach(normalized::add);
+    return mergeExcludedEventIds(new ArrayList<>(normalized), List.of());
+  }
+
+  private String encodeFeedCursor(List<String> excludedEventIds) {
+    String payload = "v2:" + String.join(",", excludedEventIds);
+    return Base64.getUrlEncoder().withoutPadding().encodeToString(payload.getBytes(StandardCharsets.UTF_8));
   }
 
   private String normalizeFeedSeed(String seed) {
@@ -1657,6 +1719,7 @@ public class EventService {
   }
 
   private record FeedFilters(
+      List<String> excludeEventIds,
       OffsetDateTime from,
       OffsetDateTime to,
       Double lat,
@@ -1667,6 +1730,8 @@ public class EventService {
       List<String> attendanceModes,
       String scope,
       String sort) {}
+
+  private record FeedCursor(int offset, List<String> excludeEventIds) {}
 
   private String normalizeMyEventsFilter(String filter) {
     String normalized = trimToNull(filter);

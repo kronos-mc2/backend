@@ -85,6 +85,7 @@ public class EventController {
       @RequestParam(required = false) String cursor,
       @RequestParam(required = false) Integer limit,
       @RequestParam(required = false) String seed,
+      @RequestParam(required = false) String excludeEventIds,
       @RequestParam(required = false) String from,
       @RequestParam(required = false) String to,
       @RequestParam(required = false) Double lat,
@@ -97,7 +98,22 @@ public class EventController {
       @RequestParam(required = false) String sort,
       Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.getFeed(userId, cursor, limit, seed, from, to, lat, lng, radiusKm, query, tags, attendanceModes, scope, sort);
+    return eventService.getFeed(
+        userId,
+        cursor,
+        limit,
+        seed,
+        excludeEventIds,
+        from,
+        to,
+        lat,
+        lng,
+        radiusKm,
+        query,
+        tags,
+        attendanceModes,
+        scope,
+        sort);
   }
 
   @PostMapping("/feed/impressions")

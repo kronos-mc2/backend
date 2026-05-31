@@ -209,6 +209,12 @@
       AND efi.user_id = #{userId}
     WHERE <include refid="accessibleEventPredicate" />
       AND e.status = 'published'
+      <if test="excludeEventIds != null and excludeEventIds.size > 0">
+        AND e.id NOT IN
+        <foreach collection="excludeEventIds" item="excludeEventId" open="(" separator="," close=")">
+          #{excludeEventId}
+        </foreach>
+      </if>
       <if test="from != null">
         AND COALESCE(e.start_at, e.when_iso) &gt;= #{from}
       </if>

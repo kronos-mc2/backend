@@ -21,6 +21,7 @@ public interface EventMapper {
   List<EventRow> findFeedPage(
       @Param("userId") String userId,
       @Param("seed") String seed,
+      @Param("excludeEventIds") List<String> excludeEventIds,
       @Param("from") OffsetDateTime from,
       @Param("to") OffsetDateTime to,
       @Param("lat") Double lat,
