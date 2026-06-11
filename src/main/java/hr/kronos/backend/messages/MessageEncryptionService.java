@@ -44,7 +44,7 @@ public class MessageEncryptionService {
           Base64.getEncoder().encodeToString(nonce),
           KEY_ID,
           1);
-    } catch (GeneralSecurityException exception) {
+    } catch (GeneralSecurityException _) {
       throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Message encryption failed.");
     }
   }
@@ -61,7 +61,7 @@ public class MessageEncryptionService {
           key,
           new GCMParameterSpec(GCM_TAG_BITS, Base64.getDecoder().decode(nonce)));
       return new String(cipher.doFinal(Base64.getDecoder().decode(ciphertext)), StandardCharsets.UTF_8);
-    } catch (IllegalArgumentException | GeneralSecurityException exception) {
+    } catch (IllegalArgumentException | GeneralSecurityException _) {
       throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Message decryption failed.");
     }
   }
@@ -76,7 +76,7 @@ public class MessageEncryptionService {
       MessageDigest digest = MessageDigest.getInstance("SHA-256");
       digest.update("kronos-message-encryption".getBytes(StandardCharsets.UTF_8));
       return Arrays.copyOf(digest.digest(normalized.getBytes(StandardCharsets.UTF_8)), 32);
-    } catch (GeneralSecurityException exception) {
+    } catch (GeneralSecurityException _) {
       throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Message encryption key derivation failed.");
     }
   }

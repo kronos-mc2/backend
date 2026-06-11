@@ -6,6 +6,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 @Mapper
+@SuppressWarnings("java:S107")
 public interface EventMapper {
   List<EventRow> findAll(
       @Param("from") OffsetDateTime from,

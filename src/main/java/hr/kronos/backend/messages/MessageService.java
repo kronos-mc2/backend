@@ -150,7 +150,7 @@ public class MessageService {
     if (limit == null) {
       return DEFAULT_MESSAGES_LIMIT;
     }
-    return Math.max(1, Math.min(MAX_MESSAGES_LIMIT, limit));
+    return Math.clamp(limit, 1, MAX_MESSAGES_LIMIT);
   }
 
   public List<ChatPersonDto> searchPeople(String userId, String query) {

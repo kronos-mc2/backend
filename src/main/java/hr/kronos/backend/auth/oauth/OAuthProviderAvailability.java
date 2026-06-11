@@ -9,6 +9,10 @@ final class OAuthProviderAvailability {
   private OAuthProviderAvailability() {}
 
   static boolean isUnavailable(JwtException exception, String jwksHost) {
+    if (exception == null) {
+      return false;
+    }
+
     Throwable current = exception;
     while (current != null) {
       if (current instanceof UnknownHostException
@@ -25,9 +29,10 @@ final class OAuthProviderAvailability {
     }
 
     String normalizedMessage = message.toLowerCase();
+    String normalizedHost = jwksHost == null ? "" : jwksHost.toLowerCase();
     return normalizedMessage.contains("i/o error")
         || normalizedMessage.contains("timed out")
         || normalizedMessage.contains("unknownhost")
-        || normalizedMessage.contains(jwksHost.toLowerCase());
+        || (!normalizedHost.isBlank() && normalizedMessage.contains(normalizedHost));
   }
 }

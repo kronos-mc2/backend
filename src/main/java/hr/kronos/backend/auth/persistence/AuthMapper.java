@@ -4,6 +4,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 @Mapper
+@SuppressWarnings("java:S107")
 public interface AuthMapper {
   UserRow findByEmail(@Param("email") String email);
 

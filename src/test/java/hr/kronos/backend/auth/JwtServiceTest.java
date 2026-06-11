@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import hr.kronos.backend.auth.persistence.UserRow;
+import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
 class JwtServiceTest {
@@ -27,9 +28,7 @@ class JwtServiceTest {
     UserRow user = buildUser();
 
     var claims = jwtService.parseClaims(jwtService.createToken(user));
-    long durationSeconds =
-        claims.getExpiration().toInstant().getEpochSecond()
-            - claims.getIssuedAt().toInstant().getEpochSecond();
+    long durationSeconds = Duration.between(claims.getIssuedAt().toInstant(), claims.getExpiration().toInstant()).toSeconds();
 
     assertEquals(604800L, durationSeconds);
   }
@@ -51,6 +50,15 @@ class JwtServiceTest {
 
     assertEquals("usr_123", claims.getSubject());
   }
+
+  @Test
+  void rejectsBlankSecret() {
+    IllegalStateException exception =
+        assertThrows(IllegalStateException.class, () -> new JwtService(" ", 3600));
+
+    assertEquals("auth.jwt.secret must be configured.", exception.getMessage());
+  }
+
 
   @Test
   void rejectsExpirationsLongerThanThirtyDays() {

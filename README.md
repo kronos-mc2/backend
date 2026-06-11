@@ -64,6 +64,10 @@ Config import za `.env` podrzava oba najcesca working directoryja:
 
 Ako IntelliJ i dalje ne ucita `.env`, u run configurationu rucno dodaj env varijablu `AUTH_JWT_SECRET` ili provjeri da working directory nije neki treci folder.
 
+## Architecture
+
+See `ARCHITECTURE.md` for the backend layer split, event service responsibilities and transaction boundaries.
+
 ## Tests
 
 Pokretanje svih backend testova:
@@ -75,7 +79,10 @@ export JAVA_HOME=$(/usr/libexec/java_home)
 
 Trenutno su pokriveni:
 
-- `EventService` business pravila oko pristupa private eventima i `joined` filtera
+- `EventDomainService` business pravila oko pristupa private eventima, `joined` filtera i capacity edge caseova
+- `EventCommandService`, `EventMediaService` i `EventMediaStorageService` delegation/storage pravila
+- `EventDtoMapper`, `EventRules` i `EventFeedRequestNormalizer` DTO URL/rule/feed cursor i filter edge caseovi
+- `EventTicketService` ticket product sync i payment lookup
 - `PasswordPolicy` validacija lozinke
 - `JwtService` generiranje/parsiranje tokena i sigurnosne granice za secret/expiration
 

@@ -15,7 +15,11 @@ import hr.kronos.backend.api.dto.FeedPageDto;
 import hr.kronos.backend.api.dto.OrganizerRatingRequest;
 import hr.kronos.backend.api.dto.SavedEventsOverviewDto;
 import hr.kronos.backend.api.dto.UpdateEventRequest;
-import hr.kronos.backend.events.EventService;
+import hr.kronos.backend.events.EventCommandService;
+import hr.kronos.backend.events.EventEngagementService;
+import hr.kronos.backend.events.EventMediaService;
+import hr.kronos.backend.events.EventParticipantService;
+import hr.kronos.backend.events.EventQueryService;
 import hr.kronos.backend.storage.StoredObjectContent;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -45,11 +49,28 @@ import org.springframework.web.server.ResponseStatusException;
 @RestController
 @RequestMapping("/api")
 public class EventController {
-  private final EventService eventService;
+  private static final String HEADER_X_CONTENT_TYPE_OPTIONS = "X-Content-Type-Options";
+  private static final String HEADER_VALUE_NOSNIFF = "nosniff";
+
+  private final EventQueryService eventQueryService;
+  private final EventCommandService eventCommandService;
+  private final EventParticipantService eventParticipantService;
+  private final EventMediaService eventMediaService;
+  private final EventEngagementService eventEngagementService;
   private final ObjectMapper objectMapper;
 
-  public EventController(EventService eventService, ObjectMapper objectMapper) {
-    this.eventService = eventService;
+  public EventController(
+      EventQueryService eventQueryService,
+      EventCommandService eventCommandService,
+      EventParticipantService eventParticipantService,
+      EventMediaService eventMediaService,
+      EventEngagementService eventEngagementService,
+      ObjectMapper objectMapper) {
+    this.eventQueryService = eventQueryService;
+    this.eventCommandService = eventCommandService;
+    this.eventParticipantService = eventParticipantService;
+    this.eventMediaService = eventMediaService;
+    this.eventEngagementService = eventEngagementService;
     this.objectMapper = objectMapper;
   }
 
@@ -65,19 +86,19 @@ public class EventController {
       @RequestParam(required = false) String attendanceModes,
       Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.getEvents(from, to, lat, lng, radiusKm, query, tags, attendanceModes, userId);
+    return eventQueryService.getEvents(from, to, lat, lng, radiusKm, query, tags, attendanceModes, userId);
   }
 
   @GetMapping("/events/{id}")
   public AppEventDto getEventById(@PathVariable String id, Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.getEventById(id, userId);
+    return eventQueryService.getEventById(id, userId);
   }
 
   @GetMapping("/events/{id}/cache-state")
   public EventCacheStateDto getEventCacheState(@PathVariable String id, Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.getEventCacheState(id, userId);
+    return eventQueryService.getEventCacheState(id, userId);
   }
 
   @GetMapping("/feed")
@@ -98,7 +119,7 @@ public class EventController {
       @RequestParam(required = false) String sort,
       Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.getFeed(
+    return eventQueryService.getFeed(
         userId,
         cursor,
         limit,
@@ -120,31 +141,31 @@ public class EventController {
   @ResponseStatus(HttpStatus.NO_CONTENT)
   public void recordFeedImpression(@RequestBody FeedImpressionRequest request, Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    eventService.recordFeedImpression(request, userId);
+    eventQueryService.recordFeedImpression(request, userId);
   }
 
   @GetMapping("/users/me/events")
   public List<AppEventDto> getMyEvents(@RequestParam(required = false) String filter, Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.getMyEvents(userId, filter);
+    return eventQueryService.getMyEvents(userId, filter);
   }
 
   @GetMapping("/users/me/liked-events")
   public List<AppEventDto> getLikedEvents(Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.getLikedEvents(userId);
+    return eventQueryService.getLikedEvents(userId);
   }
 
   @GetMapping("/users/me/saved-events/overview")
   public SavedEventsOverviewDto getSavedEventsOverview(Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.getSavedEventsOverview(userId);
+    return eventQueryService.getSavedEventsOverview(userId);
   }
 
   @GetMapping("/users/me/feed-preferences")
   public List<FeedPreferenceDto> getFeedPreferences(Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.getFeedPreferences(userId);
+    return eventQueryService.getFeedPreferences(userId);
   }
 
   @PostMapping("/users/me/feed-preferences")
@@ -152,27 +173,27 @@ public class EventController {
   public FeedPreferenceDto createFeedPreference(
       @RequestBody CreateFeedPreferenceRequest request, Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.createFeedPreference(request, userId);
+    return eventQueryService.createFeedPreference(request, userId);
   }
 
   @DeleteMapping("/users/me/feed-preferences/{preferenceId}")
   @ResponseStatus(HttpStatus.NO_CONTENT)
   public void deleteFeedPreference(@PathVariable String preferenceId, Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    eventService.deleteFeedPreference(preferenceId, userId);
+    eventQueryService.deleteFeedPreference(preferenceId, userId);
   }
 
   @GetMapping("/users/{userId}/events/upcoming")
   public List<AppEventDto> getUserUpcomingEvents(@PathVariable String userId, Authentication authentication) {
     String requesterUserId = AuthenticatedUser.userId(authentication);
-    return eventService.getUpcomingCreatedByUser(userId, requesterUserId);
+    return eventQueryService.getUpcomingCreatedByUser(userId, requesterUserId);
   }
 
   @PostMapping(value = "/events", consumes = MediaType.APPLICATION_JSON_VALUE)
   @ResponseStatus(HttpStatus.CREATED)
   public AppEventDto createEvent(@RequestBody CreateEventRequest request, Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.createEvent(request, userId);
+    return eventCommandService.createEvent(request, userId);
   }
 
   @PostMapping(value = "/events", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -183,34 +204,34 @@ public class EventController {
       @RequestPart(value = "video", required = false) MultipartFile video,
       Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.createEventWithImages(parseCreateEventRequest(eventJson), images, video, userId);
+    return eventCommandService.createEventWithImages(parseCreateEventRequest(eventJson), images, video, userId);
   }
 
   @PatchMapping("/events/{id}")
   public AppEventDto updateEvent(
       @PathVariable String id, @RequestBody UpdateEventRequest request, Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.updateEvent(id, request, userId);
+    return eventCommandService.updateEvent(id, request, userId);
   }
 
   @DeleteMapping("/events/{id}")
   @ResponseStatus(HttpStatus.NO_CONTENT)
   public void deleteEvent(@PathVariable String id, Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    eventService.deleteEvent(id, userId);
+    eventCommandService.deleteEvent(id, userId);
   }
 
   @GetMapping("/events/{id}/participants")
   public List<EventParticipantDto> getEventParticipants(@PathVariable String id, Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.getParticipants(id, userId);
+    return eventParticipantService.getParticipants(id, userId);
   }
 
   @PostMapping(value = "/events/{id}/media", consumes = MediaType.APPLICATION_JSON_VALUE)
   public AppEventDto addEventMedia(
       @PathVariable String id, @RequestBody EventMediaRequest request, Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.addMedia(id, request, userId);
+    return eventMediaService.addMedia(id, request, userId);
   }
 
   @PostMapping(value = "/events/{id}/media", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -220,7 +241,7 @@ public class EventController {
       @RequestPart(value = "video", required = false) MultipartFile video,
       Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.uploadMedia(id, image, video, userId);
+    return eventMediaService.uploadMedia(id, image, video, userId);
   }
 
   @PostMapping(
@@ -233,7 +254,7 @@ public class EventController {
       @RequestHeader(value = "X-File-Name", required = false) String filename,
       Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.uploadVideoBytes(id, bytes, contentType, decodeHeaderValue(filename), userId);
+    return eventMediaService.uploadVideoBytes(id, bytes, contentType, decodeHeaderValue(filename), userId);
   }
 
   @GetMapping("/events/{id}/media/{mediaId}/content")
@@ -243,7 +264,7 @@ public class EventController {
       @RequestHeader(value = HttpHeaders.RANGE, required = false) String rangeHeader,
       Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    StoredObjectContent content = eventService.getMediaContent(id, mediaId, userId);
+    StoredObjectContent content = eventMediaService.getMediaContent(id, mediaId, userId);
     ByteRange byteRange = parseByteRange(rangeHeader, content.contentLength());
     if (byteRange != null) {
       byte[] body = slice(content.bytes(), byteRange.start(), byteRange.end());
@@ -251,7 +272,7 @@ public class EventController {
           .contentType(MediaType.parseMediaType(content.contentType()))
           .contentLength(body.length)
           .cacheControl(CacheControl.maxAge(5, TimeUnit.MINUTES).cachePrivate())
-          .header("X-Content-Type-Options", "nosniff")
+          .header(HEADER_X_CONTENT_TYPE_OPTIONS, HEADER_VALUE_NOSNIFF)
           .header(HttpHeaders.ACCEPT_RANGES, "bytes")
           .header(HttpHeaders.CONTENT_RANGE, "bytes " + byteRange.start() + "-" + byteRange.end() + "/" + content.contentLength())
           .body(body);
@@ -260,7 +281,7 @@ public class EventController {
         .contentType(MediaType.parseMediaType(content.contentType()))
         .contentLength(content.contentLength())
         .cacheControl(CacheControl.maxAge(5, TimeUnit.MINUTES).cachePrivate())
-        .header("X-Content-Type-Options", "nosniff")
+        .header(HEADER_X_CONTENT_TYPE_OPTIONS, HEADER_VALUE_NOSNIFF)
         .header(HttpHeaders.ACCEPT_RANGES, "bytes")
         .body(content.bytes());
   }
@@ -279,12 +300,12 @@ public class EventController {
   public ResponseEntity<byte[]> getEventMediaThumbnail(
       @PathVariable String id, @PathVariable String mediaId, Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    StoredObjectContent content = eventService.getMediaThumbnailContent(id, mediaId, userId);
+    StoredObjectContent content = eventMediaService.getMediaThumbnailContent(id, mediaId, userId);
     return ResponseEntity.ok()
         .contentType(MediaType.parseMediaType(content.contentType()))
         .contentLength(content.contentLength())
         .cacheControl(CacheControl.maxAge(5, TimeUnit.MINUTES).cachePrivate())
-        .header("X-Content-Type-Options", "nosniff")
+        .header(HEADER_X_CONTENT_TYPE_OPTIONS, HEADER_VALUE_NOSNIFF)
         .body(content.bytes());
   }
 
@@ -292,66 +313,66 @@ public class EventController {
   public AppEventDto deleteEventMedia(
       @PathVariable String id, @PathVariable String mediaId, Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.deleteMedia(id, mediaId, userId);
+    return eventMediaService.deleteMedia(id, mediaId, userId);
   }
 
   @PostMapping("/events/{id}/participants/{userId}/approve")
   public List<EventParticipantDto> approveEventParticipant(
       @PathVariable String id, @PathVariable String userId, Authentication authentication) {
     String requesterUserId = AuthenticatedUser.userId(authentication);
-    return eventService.approveParticipant(id, userId, requesterUserId);
+    return eventParticipantService.approveParticipant(id, userId, requesterUserId);
   }
 
   @DeleteMapping("/events/{id}/participants/{userId}")
   public List<EventParticipantDto> removeEventParticipant(
       @PathVariable String id, @PathVariable String userId, Authentication authentication) {
     String requesterUserId = AuthenticatedUser.userId(authentication);
-    return eventService.removeParticipant(id, userId, requesterUserId);
+    return eventParticipantService.removeParticipant(id, userId, requesterUserId);
   }
 
   @PostMapping("/events/{id}/participants/{userId}/block")
   public List<EventParticipantDto> blockEventParticipant(
       @PathVariable String id, @PathVariable String userId, Authentication authentication) {
     String requesterUserId = AuthenticatedUser.userId(authentication);
-    return eventService.blockParticipant(id, userId, requesterUserId);
+    return eventParticipantService.blockParticipant(id, userId, requesterUserId);
   }
 
   @PostMapping("/events/{id}/join")
   public AppEventDto joinEvent(@PathVariable String id, Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.joinEvent(id, userId);
+    return eventParticipantService.joinEvent(id, userId);
   }
 
   @DeleteMapping("/events/{id}/join")
   public AppEventDto leaveEvent(@PathVariable String id, Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.leaveEvent(id, userId);
+    return eventParticipantService.leaveEvent(id, userId);
   }
 
   @PostMapping("/events/{id}/like")
   public AppEventDto likeEvent(@PathVariable String id, Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.likeEvent(id, userId);
+    return eventEngagementService.likeEvent(id, userId);
   }
 
   @DeleteMapping("/events/{id}/like")
   public AppEventDto unlikeEvent(@PathVariable String id, Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.unlikeEvent(id, userId);
+    return eventEngagementService.unlikeEvent(id, userId);
   }
 
   @PostMapping("/events/{id}/ratings")
   public AppEventDto rateOrganizer(
       @PathVariable String id, @RequestBody OrganizerRatingRequest request, Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.rateOrganizer(id, request, userId);
+    return eventEngagementService.rateOrganizer(id, request, userId);
   }
 
   @PostMapping("/events/{id}/ratings/full")
   public AppEventDto rateEvent(
       @PathVariable String id, @RequestBody EventRatingRequest request, Authentication authentication) {
     String userId = AuthenticatedUser.userId(authentication);
-    return eventService.rateEvent(id, request, userId);
+    return eventEngagementService.rateEvent(id, request, userId);
   }
 
   private CreateEventRequest parseCreateEventRequest(String eventJson) {
@@ -395,7 +416,7 @@ public class EventController {
         return null;
       }
       return new ByteRange(start, Math.min(end, contentLength - 1));
-    } catch (NumberFormatException exception) {
+    } catch (NumberFormatException _) {
       return null;
     }
   }

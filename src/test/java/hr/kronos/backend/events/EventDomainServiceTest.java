@@ -3,6 +3,7 @@ package hr.kronos.backend.events;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -15,17 +16,24 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 @ExtendWith(MockitoExtension.class)
-class EventServiceTest {
+class EventDomainServiceTest {
   @Mock
   private EventMapper eventMapper;
 
+  @Spy
+  private EventDtoMapper eventDtoMapper = new EventDtoMapper(mock(EventMediaStorageService.class));
+
+  @Spy
+  private EventFeedRequestNormalizer feedRequestNormalizer = new EventFeedRequestNormalizer();
+
   @InjectMocks
-  private EventService eventService;
+  private EventDomainService eventService;
 
   @Test
   void getEventByIdRejectsInaccessiblePrivateEvent() {
@@ -52,12 +60,27 @@ class EventServiceTest {
   void getMyEventsUsesJoinedFilter() {
     EventRow row = buildRow("evt_joined", "joined");
     when(eventMapper.findByUser("usr_viewer", "joined")).thenReturn(List.of(row));
+    when(eventMapper.findMediaByEventIds(List.of("evt_joined"))).thenReturn(List.of());
 
     var events = eventService.getMyEvents("usr_viewer", "joined");
 
     assertEquals(1, events.size());
     assertEquals("evt_joined", events.getFirst().id());
     assertEquals(Boolean.TRUE, events.getFirst().joinedByMe());
+  }
+
+  @Test
+  void joinEventRejectsFullEventWhenUserIsNotAlreadyJoined() {
+    EventRow row = buildRow("evt_full", null);
+    row.setCapacity(1);
+    row.setParticipantCount(1);
+    when(eventMapper.findAccessibleById("evt_full", "usr_viewer")).thenReturn(row);
+
+    ResponseStatusException exception =
+        assertThrows(ResponseStatusException.class, () -> eventService.joinEvent("evt_full", "usr_viewer"));
+
+    assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+    verify(eventMapper, never()).upsertParticipant("evt_full", "usr_viewer", "joined");
   }
 
   private EventRow buildRow(String id, String participantStatus) {

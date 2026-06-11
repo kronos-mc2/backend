@@ -36,6 +36,10 @@ public class NotificationService {
   private static final int MAX_TOKEN_LENGTH = 500;
   private static final int MAX_DEVICE_ID_LENGTH = 200;
   private static final int MAX_NOTIFICATION_BODY_LENGTH = 180;
+  private static final String APP_NAME = "Gdje i Kada";
+  private static final String CONTENT_TYPE_JSON = "application/json";
+  private static final String EVENT_TITLE_FALLBACK = "Event";
+  private static final String PUSH_CHANNEL_MESSAGES = "messages";
   private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
 
   private final NotificationMapper notificationMapper;
@@ -156,8 +160,8 @@ public class NotificationService {
     try {
       HttpRequest request = HttpRequest.newBuilder(URI.create(expoPushEndpoint))
           .timeout(Duration.ofSeconds(6))
-          .header("Accept", "application/json")
-          .header("Content-Type", "application/json")
+          .header("Accept", CONTENT_TYPE_JSON)
+          .header("Content-Type", CONTENT_TYPE_JSON)
           .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payloads)))
           .build();
       HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
@@ -204,8 +208,8 @@ public class NotificationService {
     try {
       HttpRequest request = HttpRequest.newBuilder(URI.create(expoPushEndpoint))
           .timeout(Duration.ofSeconds(6))
-          .header("Accept", "application/json")
-          .header("Content-Type", "application/json")
+          .header("Accept", CONTENT_TYPE_JSON)
+          .header("Content-Type", CONTENT_TYPE_JSON)
           .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payloads)))
           .build();
       HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
@@ -226,9 +230,9 @@ public class NotificationService {
     return Map.of(
         "to", recipient.getToken(),
         "sound", "default",
-        "channelId", "messages",
+        "channelId", PUSH_CHANNEL_MESSAGES,
         "priority", "high",
-        "title", firstNonBlank(recipient.getRoomTitle(), "Gdje i Kada"),
+        "title", firstNonBlank(recipient.getRoomTitle(), APP_NAME),
         "body", trimNotificationBody(messageBody(message, recipient.getLocale())),
         "data", Map.of(
             "type", "chat_message",
@@ -248,10 +252,10 @@ public class NotificationService {
     return Map.of(
         "to", recipient.getToken(),
         "sound", "default",
-        "channelId", "messages",
+        "channelId", PUSH_CHANNEL_MESSAGES,
         "priority", "high",
-        "title", firstNonBlank(english ? titleEn : titleHr, titleHr, titleEn, "Gdje i Kada"),
-        "body", trimNotificationBody(firstNonBlank(english ? bodyEn : bodyHr, bodyHr, bodyEn, "Event")),
+        "title", firstNonBlank(english ? titleEn : titleHr, titleHr, titleEn, APP_NAME),
+        "body", trimNotificationBody(firstNonBlank(english ? bodyEn : bodyHr, bodyHr, bodyEn, EVENT_TITLE_FALLBACK)),
         "data", Map.of(
             "type", "event_notification",
             "notificationType", firstNonBlank(notificationType, "event_notification"),
@@ -283,11 +287,11 @@ public class NotificationService {
     if ("event_share".equals(message.type())) {
       if (message.event() != null && message.event().title() != null) {
         if (isEnglish(locale)) {
-          return firstNonBlank(message.event().title().en(), message.event().title().hr(), "Event");
+          return firstNonBlank(message.event().title().en(), message.event().title().hr(), EVENT_TITLE_FALLBACK);
         }
-        return firstNonBlank(message.event().title().hr(), message.event().title().en(), "Event");
+        return firstNonBlank(message.event().title().hr(), message.event().title().en(), EVENT_TITLE_FALLBACK);
       }
-      return "Event";
+      return EVENT_TITLE_FALLBACK;
     }
     if ("poll".equals(message.type())) {
       return firstNonBlank(message.body(), isEnglish(locale) ? "Poll" : "Anketa");

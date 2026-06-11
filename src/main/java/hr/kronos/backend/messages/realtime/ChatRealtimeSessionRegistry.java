@@ -22,7 +22,7 @@ public class ChatRealtimeSessionRegistry {
       return;
     }
 
-    sessionsByUserId.computeIfAbsent(userId, ignored -> ConcurrentHashMap.newKeySet()).add(session);
+    sessionsByUserId.computeIfAbsent(userId, _ -> ConcurrentHashMap.newKeySet()).add(session);
     sessionLocks.computeIfAbsent(session, _ -> new Object());
   }
 

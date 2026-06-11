@@ -26,6 +26,7 @@ import org.springframework.core.annotation.Order;
 @Profile("dev")
 public class LocalEventSeedConfig {
   private static final String MEDIA_TYPE_IMAGE = "image";
+  private static final String SEED_MEDIA_ID_SUFFIX = "-media-1";
 
   @Bean
   @Order(0)
@@ -110,12 +111,12 @@ public class LocalEventSeedConfig {
             "image/jpeg",
             image.getWidth(),
             image.getHeight());
-        return media(event.id() + "-media-1", event.id(), stored.url(), stored.url(), stored);
-      } catch (Exception ignored) {
-        return media(event.id() + "-media-1", event.id(), event.imageSourceUrl(), null, null);
+        return media(event.id() + SEED_MEDIA_ID_SUFFIX, event.id(), stored.url(), stored.url(), stored);
+      } catch (Exception _) {
+        return media(event.id() + SEED_MEDIA_ID_SUFFIX, event.id(), event.imageSourceUrl(), null, null);
       }
     }
-    return media(event.id() + "-media-1", event.id(), event.imageSourceUrl(), null, null);
+    return media(event.id() + SEED_MEDIA_ID_SUFFIX, event.id(), event.imageSourceUrl(), null, null);
   }
 
   private EventMediaRow media(String id, String eventId, String url, String thumbnailUrl, StoredObject stored) {
@@ -142,12 +143,13 @@ public class LocalEventSeedConfig {
     List<String> row = new ArrayList<>();
     StringBuilder cell = new StringBuilder();
     boolean quoted = false;
-    for (int i = 0; i < input.length(); i++) {
-      char current = input.charAt(i);
+    int index = 0;
+    while (index < input.length()) {
+      char current = input.charAt(index);
       if (quoted) {
-        if (current == '"' && i + 1 < input.length() && input.charAt(i + 1) == '"') {
+        if (current == '"' && index + 1 < input.length() && input.charAt(index + 1) == '"') {
           cell.append('"');
-          i++;
+          index += 1;
         } else if (current == '"') {
           quoted = false;
         } else {
@@ -166,6 +168,7 @@ public class LocalEventSeedConfig {
       } else {
         cell.append(current);
       }
+      index += 1;
     }
     if (!cell.isEmpty() || !row.isEmpty()) {
       row.add(cell.toString());

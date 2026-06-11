@@ -25,5 +25,5 @@ jobs:
       - name: Ensure Maven wrapper is executable
         run: chmod +x mvnw
 
-      - name: Run tests
-        run: ./mvnw test
+      - name: Run Maven verify
+        run: ./mvnw -B verify

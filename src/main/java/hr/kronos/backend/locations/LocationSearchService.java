@@ -36,6 +36,11 @@ public class LocationSearchService {
   private static final Duration CACHE_TTL = Duration.ofMinutes(5);
   private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(5);
   private static final double PROXIMITY_VIEWBOX_DELTA = 0.35;
+  private static final String ADDRESS_CITY = "city";
+  private static final String ADDRESS_COUNTRY = "country";
+  private static final String ADDRESS_MUNICIPALITY = "municipality";
+  private static final String ADDRESS_VILLAGE = "village";
+  private static final Set<String> CITY_RESULT_TYPES = Set.of(ADDRESS_CITY, "town", ADDRESS_VILLAGE, ADDRESS_MUNICIPALITY);
 
   private final HttpClient httpClient;
   private final ObjectMapper objectMapper;
@@ -214,7 +219,7 @@ public class LocationSearchService {
       String normalized = value.trim().toLowerCase(Locale.ROOT);
       if (normalized.equals("city")) {
         types.add(SearchType.CITY);
-      } else if (normalized.equals("country")) {
+      } else if (normalized.equals(ADDRESS_COUNTRY)) {
         types.add(SearchType.COUNTRY);
       }
     }
@@ -311,7 +316,7 @@ public class LocationSearchService {
   }
 
   private boolean isCityResult(JsonNode item) {
-    if (addressValue(item, "city", "town", "village", "municipality") != null) {
+    if (addressValue(item, ADDRESS_CITY, "town", ADDRESS_VILLAGE, ADDRESS_MUNICIPALITY) != null) {
       return true;
     }
 
@@ -322,7 +327,7 @@ public class LocationSearchService {
     String type = textValue(item, "type");
 
     return "place".equals(category)
-        && List.of("city", "town", "village", "municipality").contains(type);
+        && CITY_RESULT_TYPES.contains(type);
   }
 
   private boolean isCountryResult(JsonNode item) {
@@ -332,7 +337,7 @@ public class LocationSearchService {
     }
     String type = textValue(item, "type");
 
-    return ("boundary".equals(category) && "administrative".equals(type)) || "country".equals(type);
+    return ("boundary".equals(category) && "administrative".equals(type)) || ADDRESS_COUNTRY.equals(type);
   }
 
   private String nominatimFeatureType(Set<SearchType> types) {
@@ -340,10 +345,10 @@ public class LocationSearchService {
       return null;
     }
     if (types.contains(SearchType.COUNTRY)) {
-      return "country";
+      return ADDRESS_COUNTRY;
     }
     if (types.contains(SearchType.CITY)) {
-      return "city";
+      return ADDRESS_CITY;
     }
     return null;
   }
@@ -359,7 +364,7 @@ public class LocationSearchService {
   }
 
   private DisplayName composeCityDisplay(JsonNode item, String displayName) {
-    String title = addressValue(item, "city", "town", "village", "municipality");
+    String title = addressValue(item, ADDRESS_CITY, "town", ADDRESS_VILLAGE, ADDRESS_MUNICIPALITY);
     if (title == null) {
       return parseDisplayName(displayName);
     }
@@ -367,13 +372,13 @@ public class LocationSearchService {
     List<String> subtitleParts = new ArrayList<>();
     addUnique(subtitleParts, addressValue(item, "county", "state_district"));
     addUnique(subtitleParts, addressValue(item, "state"));
-    addUnique(subtitleParts, addressValue(item, "country"));
+    addUnique(subtitleParts, addressValue(item, ADDRESS_COUNTRY));
 
     return new DisplayName(title, String.join(", ", subtitleParts));
   }
 
   private DisplayName composeCountryDisplay(JsonNode item, String displayName) {
-    String title = addressValue(item, "country");
+    String title = addressValue(item, ADDRESS_COUNTRY);
     if (title == null) {
       return parseDisplayName(displayName);
     }
@@ -392,11 +397,11 @@ public class LocationSearchService {
     String title = houseNumber == null ? road : road + " " + houseNumber;
     List<String> subtitleParts = new ArrayList<>();
 
-    addUnique(subtitleParts, addressValue(item, "city", "town", "village", "municipality", "suburb", "hamlet"));
+    addUnique(subtitleParts, addressValue(item, ADDRESS_CITY, "town", ADDRESS_VILLAGE, ADDRESS_MUNICIPALITY, "suburb", "hamlet"));
     addUnique(subtitleParts, addressValue(item, "county", "state_district"));
     addUnique(subtitleParts, addressValue(item, "state"));
     addUnique(subtitleParts, addressValue(item, "postcode"));
-    addUnique(subtitleParts, addressValue(item, "country"));
+    addUnique(subtitleParts, addressValue(item, ADDRESS_COUNTRY));
 
     return new DisplayName(title, String.join(", ", subtitleParts));
   }

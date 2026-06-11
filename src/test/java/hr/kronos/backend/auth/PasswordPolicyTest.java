@@ -26,4 +26,12 @@ class PasswordPolicyTest {
   void rejectsNullPassword() {
     assertFalse(PasswordPolicy.isValid(null));
   }
+
+
+  @Test
+  void rejectsPasswordWithoutLowercaseUppercaseOrDigit() {
+    assertFalse(PasswordPolicy.isValid("VALID123!"));
+    assertFalse(PasswordPolicy.isValid("valid123!"));
+    assertFalse(PasswordPolicy.isValid("ValidOnly!"));
+  }
 }
