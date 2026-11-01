@@ -54,3 +54,8 @@ google-services.json
 GoogleService-Info.plist
 service-account*.json
 credentials*.json
+
+# Downloaded seed media, generated import bundles and database backups
+.local/
+
+__pycache__/

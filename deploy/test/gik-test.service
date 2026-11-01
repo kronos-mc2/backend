@@ -1,0 +1,17 @@
+[Unit]
+Description=GIK test backend, PostgreSQL and media storage
+Wants=network-online.target
+After=network-online.target
+RequiresMountsFor=/mnt/ssd/apps/gik/backend
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/mnt/ssd/apps/gik/backend
+ExecStart=/usr/bin/podman start gik_postgres_test gik_minio_test gik_backend_test
+ExecStop=/usr/bin/podman stop -t 30 gik_backend_test gik_minio_test gik_postgres_test
+TimeoutStartSec=600
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target
